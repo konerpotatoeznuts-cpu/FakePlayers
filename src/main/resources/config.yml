@@ -1,25 +1,23 @@
 # FakePlayers config. Messages use MiniMessage (https://docs.advntr.dev/minimessage/format.html)
 
 defaults:
-  # blocks per tick (0.2 is about walking speed)
+  # blocks per tick for queue walking and following (PvP speed is in the pvp options)
   speed: 0.2
-  damage: 4.0
   chat-interval-seconds: 60
+  # preset a new bot starts with (see pvp.presets below)
+  preset: sword
+
+platform:
+  # Name prefix shown on Bedrock bots (Floodgate's default prefix is a dot). Use "" for none.
+  bedrock-prefix: "."
 
 follow:
   # bots stop this many blocks away from who they follow
   distance: 3.0
 
-combat:
-  sight-range: 12.0
-  reach: 3.0
-  cooldown-ticks: 12
-  # if false, bots never attack OPs
-  attack-ops: false
-
 build:
   enabled: true
-  # if true, placing a block removes one from the bot's hand
+  # if true, /bot place removes one block from the bot's held stack
   consume-items: false
   # bots will never break or place these
   blocked-materials:
@@ -34,24 +32,225 @@ build:
 death:
   # ticks until a killed bot respawns at its home. -1 = bot is removed instead.
   respawn-delay-ticks: 100
+  # true = the bot's inventory drops on death (and is emptied). false = it keeps its inventory.
   drop-items: false
 
 chat:
   # MiniMessage with <bot> and <message>
   format: '<white>\<<bot>> <message></white>'
 
+# ---------------------------------------------------------------------------
+# PvP
+# pvp.defaults is filled in automatically with every option (see /bot pvp <bot> list).
+# A bot's value comes from: its own custom value (GUI / /bot pvp set) -> its preset -> pvp.defaults.
+# Presets only need the options they change.
+# ---------------------------------------------------------------------------
+pvp:
+  presets:
+    sword:
+      shield.enabled: true
+      heal.enabled: true
+      weapon.prefer: "SWORD,AXE"
+      move.strafe: circle
+    axe:
+      weapon.prefer: "AXE,SWORD"
+      shield.enabled: false
+      weapon.shield-break: true
+      move.jump-crit: true
+      move.jump-chance: 0.6
+    mace:
+      mace.enabled: true
+      mace.wind-charge: true
+      weapon.prefer: "MACE,SWORD"
+      shield.enabled: false
+      move.min-distance: 3.0
+      move.max-distance: 4.0
+    crystal:
+      crystal.enabled: true
+      crystal.place-obsidian: true
+      totem.refill: true
+      shield.enabled: false
+      weapon.prefer: "SWORD,AXE"
+      move.strafe: random
+      move.min-distance: 3.0
+      move.max-distance: 4.5
+    anchor:
+      anchor.enabled: true
+      totem.refill: true
+      shield.enabled: false
+      weapon.prefer: "SWORD,AXE"
+      move.strafe: random
+      move.min-distance: 3.0
+      move.max-distance: 4.5
+    trap:
+      web.enabled: true
+      lava.enabled: true
+      drain.enabled: true
+      drain.reweb: true
+      lava.require-web: true
+      weapon.prefer: "SWORD,AXE"
+    ranged:
+      ranged.enabled: true
+      move.min-distance: 10.0
+      move.max-distance: 20.0
+      weapon.prefer: "SWORD"
+      shield.enabled: false
+    pot:
+      heal.splash: true
+      heal.potion-health: 14.0
+      heal.gap-health: 6.0
+      buff.enabled: true
+      weapon.prefer: "SWORD,AXE"
+      shield.enabled: false
+    hybrid:
+      crystal.enabled: true
+      anchor.enabled: true
+      web.enabled: true
+      lava.enabled: true
+      drain.enabled: true
+      mace.enabled: true
+      pearl.enabled: true
+      weapon.prefer: "MACE,AXE,SWORD"
+      shield.enabled: false
+    bedrock-spam:
+      hit.cps: 14.0
+      hit.miss-chance: 0.12
+      aim.speed: 45.0
+      move.strafe: random
+
+  # Loadouts: /bot kit <bot> [name] or the kit button. Format: MATERIAL [amount] [enchantment=level] [potion=type]
+  # Armor goes into armor slots, a SHIELD goes to the off hand, everything else fills the hotbar then the inventory.
+  kits:
+    sword:
+      - NETHERITE_HELMET protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS protection=4 unbreaking=3
+      - NETHERITE_BOOTS protection=4 unbreaking=3 feather_falling=4
+      - NETHERITE_SWORD sharpness=5 unbreaking=3 fire_aspect=2
+      - NETHERITE_AXE sharpness=5 unbreaking=3
+      - SHIELD
+      - GOLDEN_APPLE 16
+      - ENCHANTED_GOLDEN_APPLE 4
+      - TOTEM_OF_UNDYING 3
+      - WATER_BUCKET
+    axe:
+      - NETHERITE_HELMET protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS protection=4 unbreaking=3
+      - NETHERITE_BOOTS protection=4 unbreaking=3
+      - NETHERITE_AXE sharpness=5 unbreaking=3
+      - NETHERITE_SWORD sharpness=5 unbreaking=3
+      - GOLDEN_APPLE 16
+      - TOTEM_OF_UNDYING 3
+    mace:
+      - NETHERITE_HELMET protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS protection=4 unbreaking=3
+      - NETHERITE_BOOTS protection=4 unbreaking=3 feather_falling=4
+      - MACE density=5 unbreaking=3 wind_burst=3
+      - NETHERITE_SWORD sharpness=5 unbreaking=3
+      - WIND_CHARGE 64
+      - GOLDEN_APPLE 16
+      - WATER_BUCKET
+      - TOTEM_OF_UNDYING 3
+    crystal:
+      - NETHERITE_HELMET blast_protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE blast_protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS blast_protection=4 unbreaking=3
+      - NETHERITE_BOOTS blast_protection=4 unbreaking=3
+      - NETHERITE_SWORD sharpness=5 unbreaking=3
+      - END_CRYSTAL 64
+      - OBSIDIAN 64
+      - GOLDEN_APPLE 16
+      - ENCHANTED_GOLDEN_APPLE 4
+      - TOTEM_OF_UNDYING 4
+    anchor:
+      - NETHERITE_HELMET blast_protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE blast_protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS blast_protection=4 unbreaking=3
+      - NETHERITE_BOOTS blast_protection=4 unbreaking=3
+      - NETHERITE_SWORD sharpness=5 unbreaking=3
+      - RESPAWN_ANCHOR 16
+      - GLOWSTONE 64
+      - GOLDEN_APPLE 16
+      - TOTEM_OF_UNDYING 4
+    trap:
+      - NETHERITE_HELMET protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS protection=4 unbreaking=3
+      - NETHERITE_BOOTS protection=4 unbreaking=3
+      - NETHERITE_SWORD sharpness=5 unbreaking=3
+      - COBWEB 32
+      - LAVA_BUCKET
+      - BUCKET 2
+      - GOLDEN_APPLE 16
+      - TOTEM_OF_UNDYING 3
+    ranged:
+      - NETHERITE_HELMET protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS protection=4 unbreaking=3
+      - NETHERITE_BOOTS protection=4 unbreaking=3
+      - BOW power=5 infinity=1 unbreaking=3
+      - CROSSBOW quick_charge=3 unbreaking=3
+      - NETHERITE_SWORD sharpness=5 unbreaking=3
+      - ARROW 64
+      - GOLDEN_APPLE 16
+      - TOTEM_OF_UNDYING 2
+    pot:
+      - NETHERITE_HELMET protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS protection=4 unbreaking=3
+      - NETHERITE_BOOTS protection=4 unbreaking=3
+      - NETHERITE_SWORD sharpness=5 unbreaking=3
+      - SPLASH_POTION potion=strong_healing
+      - SPLASH_POTION potion=strong_healing
+      - SPLASH_POTION potion=strong_healing
+      - SPLASH_POTION potion=strong_healing
+      - SPLASH_POTION potion=strong_healing
+      - POTION potion=strong_swiftness
+      - POTION potion=strong_strength
+      - POTION potion=fire_resistance
+      - GOLDEN_APPLE 8
+      - TOTEM_OF_UNDYING 2
+    hybrid:
+      - NETHERITE_HELMET protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS protection=4 unbreaking=3
+      - NETHERITE_BOOTS protection=4 unbreaking=3
+      - MACE density=5 unbreaking=3 wind_burst=3
+      - NETHERITE_AXE sharpness=5 unbreaking=3
+      - NETHERITE_SWORD sharpness=5 unbreaking=3
+      - END_CRYSTAL 64
+      - OBSIDIAN 64
+      - RESPAWN_ANCHOR 8
+      - GLOWSTONE 32
+      - WIND_CHARGE 64
+      - COBWEB 32
+      - LAVA_BUCKET
+      - BUCKET 2
+      - WATER_BUCKET
+      - ENDER_PEARL 16
+      - GOLDEN_APPLE 16
+      - TOTEM_OF_UNDYING 4
+    bedrock-spam:
+      - NETHERITE_HELMET protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS protection=4 unbreaking=3
+      - NETHERITE_BOOTS protection=4 unbreaking=3
+      - NETHERITE_SWORD sharpness=5 unbreaking=3
+      - GOLDEN_APPLE 16
+      - TOTEM_OF_UNDYING 3
+
 # Console commands run for integration with your other plugins.
-# Placeholders: %bot% %victim% %player% %item% %x% %y% %z%
+# Placeholders: %bot% %victim% %player% %item% %platform% %x% %y% %z%
 # Leave a list empty ([]) to disable it.
 integration:
   # A bot kills a player (victim = player name). Point this at your kill progression plugin.
-  # Example: - "kills add %victim% -1"  or whatever your plugin offers
   bot-kills-player: []
-  # A player kills a bot (player = killer). Use this to give/count kills for your progression plugin.
-  # Example: - "kills add %player% 1"
+  # A player kills a bot (player = killer).
   player-kills-bot: []
-  # Every time a bot hits something with a melee attack (victim = entity type or player name,
-  # item = the bot's held item type). Use this to trigger custom weapon abilities.
+  # Every time a bot lands a melee hit (victim = entity type or player name, item = the held item type).
+  # Use this to trigger custom weapon abilities.
   on-bot-hit: []
   # Run by "/bot use <bot>".
   on-use: []
