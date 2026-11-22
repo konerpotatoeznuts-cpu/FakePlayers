@@ -13,11 +13,11 @@ import org.bukkit.block.BlockFace;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Entity;
-import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Mannequin;
-import org.bukkit.entity.Monster;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Vector;
@@ -26,23 +26,41 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class BotManager {
+
+    /** A block the bot placed that should be removed later. */
+    public record Placed(Location loc, Material expect, long expire, Material refundFrom, Material refundTo, Bot bot) {
+    }
 
     private final FakePlayersPlugin plugin;
     private final Map<String, Bot> bots = new LinkedHashMap<>();
     private final NamespacedKey botKey;
     private final File file;
+    private final List<Placed> placed = new ArrayList<>();
+    private final BotCombat combat;
+    private long tickCount;
 
     public BotManager(FakePlayersPlugin plugin) {
         this.plugin = plugin;
         this.botKey = new NamespacedKey(plugin, "bot_name");
         this.file = new File(plugin.getDataFolder(), "bots.yml");
+        this.combat = new BotCombat(plugin, this);
+    }
+
+    public BotCombat combat() {
+        return combat;
+    }
+
+    public long tickCount() {
+        return tickCount;
     }
 
     // ------------------------------------------------------------ lookup
@@ -85,8 +103,8 @@ public class BotManager {
         b.skin = (skin == null || skin.isEmpty()) ? name : skin;
         b.home = loc.clone();
         b.speed = plugin.getConfig().getDouble("defaults.speed", 0.2);
-        b.damage = plugin.getConfig().getDouble("defaults.damage", 4.0);
         b.chatIntervalSeconds = plugin.getConfig().getInt("defaults.chat-interval-seconds", 60);
+        b.preset = plugin.getConfig().getString("defaults.preset", "sword");
         bots.put(k(name), b);
         spawnEntity(b, loc);
         save();
@@ -97,6 +115,8 @@ public class BotManager {
         Mannequin m = loc.getWorld().spawn(loc, Mannequin.class, e ->
                 e.getPersistentDataContainer().set(botKey, PersistentDataType.STRING, b.name));
         b.entityId = m.getUniqueId();
+        b.resetCombat();
+        b.equipDirty = true;
         apply(b, m);
     }
 
@@ -129,15 +149,44 @@ public class BotManager {
 
     /** Pushes the bot's saved settings onto its entity. */
     public void apply(Bot b, Mannequin m) {
-        m.customName(Component.text(b.name));
+        String prefix = plugin.getConfig().getString("platform.bedrock-prefix", ".");
+        m.customName(Component.text(b.displayName(prefix)));
         m.setCustomNameVisible(true);
         m.setDescription(null);
         m.setImmovable(b.immovable);
         m.setPersistent(true);
         m.setRemoveWhenFarAway(false);
+        m.getPersistentDataContainer().set(new NamespacedKey(plugin, "bot_platform"),
+                PersistentDataType.STRING, b.platform.name());
+        m.setMetadata("fakeplayers_platform", new FixedMetadataValue(plugin, b.platform.name()));
         if (b.skin != null && b.skin.matches("[A-Za-z0-9_]{1,16}")) {
             m.setProfile(ResolvableProfile.resolvableProfile().name(b.skin).build());
         }
+        syncEquipment(b, m);
+    }
+
+    private static ItemStack nz(ItemStack i) {
+        return Bot.empty(i) ? new ItemStack(Material.AIR) : i.clone();
+    }
+
+    /** Shows the bot's armor, selected hotbar item and off hand on the entity. */
+    public void syncEquipment(Bot b, Mannequin m) {
+        EntityEquipment eq = m.getEquipment();
+        eq.setHelmet(nz(b.armor[0]));
+        eq.setChestplate(nz(b.armor[1]));
+        eq.setLeggings(nz(b.armor[2]));
+        eq.setBoots(nz(b.armor[3]));
+        eq.setItemInMainHand(nz(b.inv[b.selected]));
+        eq.setItemInOffHand(nz(b.offhand));
+    }
+
+    /** Reads hands back from the entity (after a totem pop the game shrinks the entity's copy). */
+    public void pullHands(Bot b, Mannequin m) {
+        EntityEquipment eq = m.getEquipment();
+        ItemStack main = eq.getItemInMainHand();
+        ItemStack off = eq.getItemInOffHand();
+        b.inv[b.selected] = Bot.empty(main) ? null : main.clone();
+        b.offhand = Bot.empty(off) ? null : off.clone();
     }
 
     // ------------------------------------------------------------ persistence
@@ -152,17 +201,35 @@ public class BotManager {
             y.set(p + "home", b.home);
             y.set(p + "immovable", b.immovable);
             y.set(p + "invulnerable", b.invulnerable);
-            y.set(p + "attack-players", b.attackPlayers);
-            y.set(p + "attack-hostiles", b.attackHostiles);
+            y.set(p + "combat", b.combat);
             y.set(p + "follow-nearest-op", b.followNearestOp);
             y.set(p + "follow-target", b.followTarget);
+            y.set(p + "forced-target", b.forcedTarget);
             y.set(p + "auto-chat", b.autoChat);
             y.set(p + "loop", b.loop);
             y.set(p + "speed", b.speed);
-            y.set(p + "damage", b.damage);
             y.set(p + "chat-interval", b.chatIntervalSeconds);
             y.set(p + "chat-lines", b.chatLines);
             y.set(p + "queue", new ArrayList<>(b.queue));
+            y.set(p + "platform", b.platform.name());
+            y.set(p + "preset", b.preset);
+            y.set(p + "selected", b.selected);
+            for (Map.Entry<String, String> en : b.pvp.entrySet()) {
+                y.set(p + "pvp." + en.getKey().replace('.', '_'), en.getKey() + "=" + en.getValue());
+            }
+            for (int i = 0; i < 36; i++) {
+                if (!Bot.empty(b.inv[i])) {
+                    y.set(p + "inv." + i, b.inv[i]);
+                }
+            }
+            for (int i = 0; i < 4; i++) {
+                if (!Bot.empty(b.armor[i])) {
+                    y.set(p + "armor." + i, b.armor[i]);
+                }
+            }
+            if (!Bot.empty(b.offhand)) {
+                y.set(p + "offhand", b.offhand);
+            }
         }
         try {
             plugin.getDataFolder().mkdirs();
@@ -191,7 +258,7 @@ public class BotManager {
             String id = s.getString("entity");
             if (id != null) {
                 try {
-                    b.entityId = java.util.UUID.fromString(id);
+                    b.entityId = UUID.fromString(id);
                 } catch (IllegalArgumentException ignored) {
                     // leave null
                 }
@@ -200,17 +267,61 @@ public class BotManager {
             b.home = s.getLocation("home");
             b.immovable = s.getBoolean("immovable");
             b.invulnerable = s.getBoolean("invulnerable");
-            b.attackPlayers = s.getBoolean("attack-players");
-            b.attackHostiles = s.getBoolean("attack-hostiles");
+            b.combat = s.getBoolean("combat");
             b.followNearestOp = s.getBoolean("follow-nearest-op");
             b.followTarget = s.getString("follow-target");
+            b.forcedTarget = s.getString("forced-target");
             b.autoChat = s.getBoolean("auto-chat");
             b.loop = s.getBoolean("loop");
             b.speed = s.getDouble("speed", 0.2);
-            b.damage = s.getDouble("damage", 4.0);
             b.chatIntervalSeconds = s.getInt("chat-interval", 60);
             b.chatLines = new ArrayList<>(s.getStringList("chat-lines"));
             b.queue.addAll(s.getStringList("queue"));
+            try {
+                b.platform = Bot.Platform.valueOf(s.getString("platform", "JAVA"));
+            } catch (IllegalArgumentException ex) {
+                b.platform = Bot.Platform.JAVA;
+            }
+            b.preset = s.getString("preset", "sword");
+            b.selected = Math.max(0, Math.min(8, s.getInt("selected", 0)));
+            ConfigurationSection pv = s.getConfigurationSection("pvp");
+            if (pv != null) {
+                for (String pk : pv.getKeys(false)) {
+                    String line = pv.getString(pk, "");
+                    int eq = line.indexOf('=');
+                    if (eq > 0) {
+                        b.pvp.put(line.substring(0, eq), line.substring(eq + 1));
+                    }
+                }
+            }
+            ConfigurationSection inv = s.getConfigurationSection("inv");
+            if (inv != null) {
+                for (String ik : inv.getKeys(false)) {
+                    try {
+                        int idx = Integer.parseInt(ik);
+                        if (idx >= 0 && idx < 36) {
+                            b.inv[idx] = inv.getItemStack(ik);
+                        }
+                    } catch (NumberFormatException ignored) {
+                        // skip
+                    }
+                }
+            }
+            ConfigurationSection ar = s.getConfigurationSection("armor");
+            if (ar != null) {
+                for (String ak : ar.getKeys(false)) {
+                    try {
+                        int idx = Integer.parseInt(ak);
+                        if (idx >= 0 && idx < 4) {
+                            b.armor[idx] = ar.getItemStack(ak);
+                        }
+                    } catch (NumberFormatException ignored) {
+                        // skip
+                    }
+                }
+            }
+            b.offhand = s.getItemStack("offhand");
+            b.equipDirty = true;
             bots.put(k(b.name), b);
         }
     }
@@ -218,12 +329,18 @@ public class BotManager {
     // ------------------------------------------------------------ ticking
 
     public void tick() {
+        tickCount++;
+        tickPlaced();
         for (Bot b : new ArrayList<>(bots.values())) {
             Mannequin m = entity(b);
             if (m == null || m.isDead()) {
                 continue;
             }
             try {
+                if (b.equipDirty) {
+                    syncEquipment(b, m);
+                    b.equipDirty = false;
+                }
                 tickBot(b, m);
             } catch (Exception ex) {
                 plugin.getLogger().warning("Error ticking bot " + b.name + ": " + ex);
@@ -232,10 +349,6 @@ public class BotManager {
     }
 
     private void tickBot(Bot b, Mannequin m) {
-        if (b.attackCooldown > 0) {
-            b.attackCooldown--;
-        }
-
         // auto chat
         if (b.autoChat && !b.chatLines.isEmpty()) {
             if (--b.chatCountdown <= 0) {
@@ -245,12 +358,8 @@ public class BotManager {
         }
 
         // combat has priority
-        if (b.attackPlayers || b.attackHostiles) {
-            LivingEntity target = findTarget(b, m);
-            if (target != null) {
-                fight(b, m, target);
-                return;
-            }
+        if (b.combat && combat.tick(b, m)) {
+            return;
         }
 
         // following
@@ -283,7 +392,66 @@ public class BotManager {
         processQueue(b, m);
     }
 
-    // ------------------------------------------------------------ movement & looking
+    // ------------------------------------------------------------ placed blocks
+
+    /**
+     * Places a block the bot is allowed to place and optionally removes it later.
+     * When refundTo is set, removing it gives the bot refundTo in place of one refundFrom (e.g. BUCKET to LAVA_BUCKET).
+     */
+    public boolean placeTemp(Bot b, Block block, Material mat, int cleanupTicks, Material refundFrom, Material refundTo) {
+        if (!plugin.getConfig().getBoolean("build.enabled", true) || blocked(mat)) {
+            return false;
+        }
+        if (!(block.isEmpty() || block.isReplaceable() || block.getType() == Material.COBWEB)) {
+            return false;
+        }
+        block.setType(mat, true);
+        if (cleanupTicks > 0) {
+            placed.add(new Placed(block.getLocation(), mat, tickCount + cleanupTicks, refundFrom, refundTo, b));
+        }
+        return true;
+    }
+
+    private void tickPlaced() {
+        if (placed.isEmpty()) {
+            return;
+        }
+        Iterator<Placed> it = placed.iterator();
+        while (it.hasNext()) {
+            Placed p = it.next();
+            if (tickCount < p.expire()) {
+                continue;
+            }
+            it.remove();
+            removePlaced(p, true);
+        }
+    }
+
+    private void removePlaced(Placed p, boolean refund) {
+        if (p.loc().getWorld() == null) {
+            return;
+        }
+        Block block = p.loc().getBlock();
+        if (block.getType() == p.expect()) {
+            block.setType(Material.AIR);
+        }
+        if (refund && p.refundTo() != null && p.refundFrom() != null && p.bot() != null) {
+            int slot = p.bot().find(p.refundFrom());
+            if (slot >= 0) {
+                p.bot().convertOne(slot, p.refundTo());
+            }
+        }
+    }
+
+    /** Removes everything the bots placed (called when the plugin disables). */
+    public void cleanupPlaced() {
+        for (Placed p : placed) {
+            removePlaced(p, false);
+        }
+        placed.clear();
+    }
+
+    // ------------------------------------------------------------ movement & looking (queue / follow)
 
     public boolean moveToward(Bot b, Mannequin m, Location target) {
         if (b.immovable) {
@@ -300,7 +468,16 @@ public class BotManager {
         double nz = dz / h;
         float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
         m.setRotation(yaw, 0f);
+        walk(b, m, nx, nz, b.speed);
+        return false;
+    }
 
+    /** Moves in a horizontal direction with simple step-up jumping. */
+    public void walk(Bot b, Mannequin m, double nx, double nz, double speed) {
+        if (b.immovable) {
+            return;
+        }
+        Location loc = m.getLocation();
         Vector v = m.getVelocity();
         double y = v.getY();
         Location ahead = loc.clone().add(nx * 0.8, 0, nz * 0.8);
@@ -310,8 +487,11 @@ public class BotManager {
                 && !ahead.clone().add(0, 2, 0).getBlock().getType().isSolid()) {
             y = 0.42;
         }
-        m.setVelocity(new Vector(nx * b.speed, y, nz * b.speed));
-        return false;
+        if (m.isOnGround()) {
+            m.setVelocity(new Vector(nx * speed, y, nz * speed));
+        } else {
+            m.setVelocity(new Vector(v.getX() * 0.9 + nx * speed * 0.1, y, v.getZ() * 0.9 + nz * speed * 0.1));
+        }
     }
 
     public void face(Mannequin m, Location target) {
@@ -323,54 +503,6 @@ public class BotManager {
         float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
         float pitch = (float) -Math.toDegrees(Math.atan2(dy, h));
         m.setRotation(yaw, pitch);
-    }
-
-    // ------------------------------------------------------------ combat
-
-    private LivingEntity findTarget(Bot b, Mannequin m) {
-        double range = plugin.getConfig().getDouble("combat.sight-range", 12.0);
-        boolean attackOps = plugin.getConfig().getBoolean("combat.attack-ops", false);
-        LivingEntity best = null;
-        double bestD = Double.MAX_VALUE;
-        for (Entity e : m.getNearbyEntities(range, range, range)) {
-            if (!(e instanceof LivingEntity le) || le.isDead() || e.equals(m)) {
-                continue;
-            }
-            boolean ok = false;
-            if (e instanceof Player p) {
-                ok = b.attackPlayers
-                        && (p.getGameMode() == GameMode.SURVIVAL || p.getGameMode() == GameMode.ADVENTURE)
-                        && (attackOps || !p.isOp());
-            } else if (e instanceof Monster) {
-                ok = b.attackHostiles;
-            }
-            if (!ok) {
-                continue;
-            }
-            double d = e.getLocation().distanceSquared(m.getLocation());
-            if (d < bestD) {
-                bestD = d;
-                best = le;
-            }
-        }
-        return best;
-    }
-
-    private void fight(Bot b, Mannequin m, LivingEntity target) {
-        double reach = plugin.getConfig().getDouble("combat.reach", 3.0);
-        double dist = target.getLocation().distance(m.getLocation());
-        if (dist <= reach) {
-            face(m, target.getEyeLocation());
-            if (b.attackCooldown <= 0) {
-                b.attackCooldown = plugin.getConfig().getInt("combat.cooldown-ticks", 12);
-                m.swingMainHand();
-                target.damage(b.damage, m);
-                String victim = target instanceof Player p ? p.getName() : target.getType().name();
-                runCommands("integration.on-bot-hit", placeholders(b, m, "victim", victim));
-            }
-        } else {
-            moveToward(b, m, target.getLocation());
-        }
     }
 
     // ------------------------------------------------------------ queue
@@ -399,7 +531,7 @@ public class BotManager {
         runAction(b, m, a);
     }
 
-    /** Runs one action string: goto x y z | wait ticks | say text | look yaw pitch | look player | place | break | use */
+    /** One action: goto x y z | wait ticks | say text | look yaw pitch | look player | select 1-9 | place | break | use */
     public void runAction(Bot b, Mannequin m, String action) {
         String[] p = action.trim().split(" ", 2);
         String arg = p.length > 1 ? p[1] : "";
@@ -413,6 +545,10 @@ public class BotManager {
                 }
                 case "wait" -> b.waitTicks = Integer.parseInt(arg.trim());
                 case "say" -> say(b, arg);
+                case "select" -> {
+                    b.selected = Math.max(0, Math.min(8, Integer.parseInt(arg.trim()) - 1));
+                    b.equipDirty = true;
+                }
                 case "look" -> {
                     String[] c = arg.trim().split("\\s+");
                     if (c.length >= 2) {
@@ -438,9 +574,9 @@ public class BotManager {
 
     public void say(Bot b, String message) {
         String fmt = plugin.getConfig().getString("chat.format", "<white>\\<<bot>> <message></white>");
-        // bot name and message are inserted as plain text so they can't inject MiniMessage tags
+        String prefix = plugin.getConfig().getString("platform.bedrock-prefix", ".");
         Bukkit.broadcast(plugin.parse(fmt,
-                Placeholder.unparsed("bot", b.name),
+                Placeholder.unparsed("bot", b.displayName(prefix)),
                 Placeholder.unparsed("message", message)));
     }
 
@@ -448,8 +584,8 @@ public class BotManager {
         if (!plugin.getConfig().getBoolean("build.enabled", true)) {
             return false;
         }
-        ItemStack held = m.getEquipment().getItemInMainHand();
-        if (held.getType().isAir() || !held.getType().isBlock() || blocked(held.getType())) {
+        ItemStack held = b.held();
+        if (held == null || !held.getType().isBlock() || blocked(held.getType())) {
             return false;
         }
         RayTraceResult r = m.getWorld().rayTraceBlocks(m.getEyeLocation(), m.getEyeLocation().getDirection(), 4.5);
@@ -464,8 +600,7 @@ public class BotManager {
         target.setType(held.getType());
         m.swingMainHand();
         if (plugin.getConfig().getBoolean("build.consume-items", false)) {
-            held.setAmount(held.getAmount() - 1);
-            m.getEquipment().setItemInMainHand(held);
+            b.take(b.selected, 1);
         }
         return true;
     }
@@ -483,10 +618,11 @@ public class BotManager {
             return false;
         }
         m.swingMainHand();
-        return hit.breakNaturally(m.getEquipment().getItemInMainHand());
+        ItemStack tool = b.held();
+        return tool == null ? hit.breakNaturally() : hit.breakNaturally(tool);
     }
 
-    private boolean blocked(Material mat) {
+    public boolean blocked(Material mat) {
         for (String s : plugin.getConfig().getStringList("build.blocked-materials")) {
             if (s.equalsIgnoreCase(mat.name())) {
                 return true;
@@ -501,7 +637,9 @@ public class BotManager {
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("bot", b.name);
         ph.put(key, value);
-        ph.put("item", m == null ? "" : m.getEquipment().getItemInMainHand().getType().name());
+        ItemStack held = b.held();
+        ph.put("item", held == null ? "AIR" : held.getType().name());
+        ph.put("platform", b.platform.name());
         if (m != null) {
             Location l = m.getLocation();
             ph.put("x", String.valueOf(l.getBlockX()));

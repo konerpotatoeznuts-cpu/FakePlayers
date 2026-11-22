@@ -3,7 +3,6 @@ package com.example.fakeplayers;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
-import org.bukkit.NamespacedKey;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -16,7 +15,8 @@ public class FakePlayersPlugin extends JavaPlugin {
     @Override
     public void onEnable() {
         saveDefaultConfig();
-        EquipGui.KEY = new NamespacedKey(this, "gui_item");
+        PvpOptions.writeDefaults(getConfig());
+        saveConfig();
         manager = new BotManager(this);
         manager.load();
 
@@ -34,8 +34,20 @@ public class FakePlayersPlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         if (manager != null) {
+            manager.cleanupPlaced();
             manager.save();
         }
+    }
+
+    /** Names of the presets defined in config.yml. */
+    public java.util.List<String> presets() {
+        org.bukkit.configuration.ConfigurationSection s = getConfig().getConfigurationSection("pvp.presets");
+        return s == null ? java.util.List.of() : new java.util.ArrayList<>(s.getKeys(false));
+    }
+
+    /** Sends a MiniMessage line with the plugin prefix. */
+    public void info(CommandSender to, String miniMessage) {
+        to.sendMessage(mm.deserialize(getConfig().getString("messages.prefix", "") + miniMessage));
     }
 
     public BotManager manager() {
