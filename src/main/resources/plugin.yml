@@ -1,0 +1,15 @@
+name: FakePlayers
+version: '${version}'
+main: com.example.fakeplayers.FakePlayersPlugin
+api-version: '26.2'
+description: Customizable fake players (bots) for OPs.
+commands:
+  bot:
+    description: Manage fake players
+    usage: /bot help
+    aliases: [fp, fakeplayer]
+    permission: fakeplayers.admin
+permissions:
+  fakeplayers.admin:
+    description: Use all fake player commands and the config GUI
+    default: op

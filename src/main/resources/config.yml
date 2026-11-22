@@ -1,1 +1,70 @@
+# FakePlayers config. Messages use MiniMessage (https://docs.advntr.dev/minimessage/format.html)
 
+defaults:
+  # blocks per tick (0.2 is about walking speed)
+  speed: 0.2
+  damage: 4.0
+  chat-interval-seconds: 60
+
+follow:
+  # bots stop this many blocks away from who they follow
+  distance: 3.0
+
+combat:
+  sight-range: 12.0
+  reach: 3.0
+  cooldown-ticks: 12
+  # if false, bots never attack OPs
+  attack-ops: false
+
+build:
+  enabled: true
+  # if true, placing a block removes one from the bot's hand
+  consume-items: false
+  # bots will never break or place these
+  blocked-materials:
+    - BEDROCK
+    - BARRIER
+    - COMMAND_BLOCK
+    - CHAIN_COMMAND_BLOCK
+    - REPEATING_COMMAND_BLOCK
+    - STRUCTURE_BLOCK
+    - JIGSAW
+
+death:
+  # ticks until a killed bot respawns at its home. -1 = bot is removed instead.
+  respawn-delay-ticks: 100
+  drop-items: false
+
+chat:
+  # MiniMessage with <bot> and <message>
+  format: '<white>\<<bot>> <message></white>'
+
+# Console commands run for integration with your other plugins.
+# Placeholders: %bot% %victim% %player% %item% %x% %y% %z%
+# Leave a list empty ([]) to disable it.
+integration:
+  # A bot kills a player (victim = player name). Point this at your kill progression plugin.
+  # Example: - "kills add %victim% -1"  or whatever your plugin offers
+  bot-kills-player: []
+  # A player kills a bot (player = killer). Use this to give/count kills for your progression plugin.
+  # Example: - "kills add %player% 1"
+  player-kills-bot: []
+  # Every time a bot hits something with a melee attack (victim = entity type or player name,
+  # item = the bot's held item type). Use this to trigger custom weapon abilities.
+  on-bot-hit: []
+  # Run by "/bot use <bot>".
+  on-use: []
+
+messages:
+  prefix: "<gray>[<aqua>Bots</aqua>]</gray> "
+  no-bot: "<red>No bot named <white>%name%</white>.</red>"
+  exists: "<red>A bot named <white>%name%</white> already exists.</red>"
+  spawned: "<green>Spawned bot <white>%name%</white>.</green>"
+  removed: "<yellow>Removed bot <white>%name%</white>.</yellow>"
+  done: "<green>Done.</green>"
+  players-only: "<red>Only players can use this.</red>"
+  bad-args: "<red>Usage: %usage%</red>"
+  unknown-sub: "<red>Unknown subcommand. Try <white>/bot help</white>.</red>"
+  reloaded: "<green>Config reloaded.</green>"
+  not-loaded: "<red>Bot <white>%name%</white> isn't loaded (its chunk may be unloaded). Try <white>/bot respawn %name%</white>.</red>"
