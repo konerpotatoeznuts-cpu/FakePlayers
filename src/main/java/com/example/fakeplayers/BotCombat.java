@@ -158,6 +158,9 @@ public class BotCombat {
             melee(b, m, t, dist);
             return true;
         }
+        if (pearlTech(b, m, t, center)) {
+            return true;
+        }
         if (pearl(b, m, t, center)) {
             return true;
         }
@@ -168,7 +171,6 @@ public class BotCombat {
         if (!spearmace(b, m, t, center)) {
             mace(b, m, t, center);
         }
-        grapple(b, m, t, center);
 
         if (ranged(b, m, t, center)) {
             engage(b, m, t, 0.8);
@@ -188,9 +190,11 @@ public class BotCombat {
         Bot.CombatState st = b.st;
         Location l = m.getLocation();
         if (st.lastLoc != null && st.lastLoc.getWorld() != null && st.lastLoc.getWorld().equals(l.getWorld())
-                && st.lastLoc.distanceSquared(l) > 36.0 && on(b, "pcrit.enabled")) {
-            st.pcrit = 25;
+                && st.lastLoc.distanceSquared(l) > 36.0) {
+            st.pcrit = 0;
         }
+        st.vy = st.lastLoc != null && st.lastLoc.getWorld() != null && st.lastLoc.getWorld().equals(l.getWorld())
+                ? l.getY() - st.lastLoc.getY() : 0;
         st.lastLoc = l.clone();
         if (m.isOnGround()) {
             st.peakY = l.getY();
@@ -363,12 +367,6 @@ public class BotCombat {
         }
         Location ml = m.getLocation();
         Location goal = t.getLocation();
-        boolean catching = st.catchTicks > 0 && st.catchPoint != null && st.catchPoint.getWorld() != null
-                && st.catchPoint.getWorld().equals(ml.getWorld());
-        if (catching) {
-            goal = st.catchPoint;
-            st.catchTicks--;
-        }
         double dx = goal.getX() - ml.getX();
         double dz = goal.getZ() - ml.getZ();
         double h = Math.max(1e-4, Math.hypot(dx, dz));
@@ -424,8 +422,8 @@ public class BotCombat {
 
         // jump for a critical hit just before the next swing (or right after a pearl teleport)
         boolean wantJump = false;
-        if (st.pcrit > 0 && m.isOnGround() && h < 6.0) {
-            wantJump = true;
+        if (st.pcrit > 0) {
+            wantJump = false;
         } else if (on(b, "move.jump-crit") && m.isOnGround() && h < 4.5 && !retreat
                 && st.attackTimer <= 2 && rnd() < num(b, "move.jump-chance") * 0.35) {
             wantJump = true;
@@ -612,6 +610,18 @@ public class BotCombat {
         return best == Integer.MAX_VALUE ? cooldownTicks(b, b.held()) : best;
     }
 
+    /** Punish crit: the bot was just hit and knocked up, so it crits back while it falls. */
+    public void onHurt(Bot b, Mannequin m, Entity attacker) {
+        if (!on(b, "pcrit.enabled") || attacker == m) {
+            return;
+        }
+        b.st.pcrit = Math.max(1, intv(b, "pcrit.window"));
+        b.st.attackTimer = 0;
+        if (b.st.targetId == null && attacker instanceof LivingEntity) {
+            b.st.targetId = attacker.getUniqueId();
+        }
+    }
+
     private void melee(Bot b, Mannequin m, LivingEntity t, double dist) {
         Bot.CombatState st = b.st;
         if (dist > num(b, "hit.reach") || st.shielding || st.attackTimer > 0) {
@@ -620,8 +630,12 @@ public class BotCombat {
         if (!facing(m, aimPoint(t), 30)) {
             return;
         }
+        // punish crit: knocked into the air, wait until falling, then hit back
+        if (st.pcrit > 0 && !m.isOnGround() && st.vy > -0.04) {
+            return;
+        }
         // after a jump, wait until the bot is falling so the hit is a critical
-        if (on(b, "hit.crit") && st.jumpedTicks > 0 && !m.isOnGround() && m.getVelocity().getY() > 0) {
+        if (on(b, "hit.crit") && st.jumpedTicks > 0 && !m.isOnGround() && st.vy > -0.04) {
             return;
         }
         if (b.platform == Bot.Platform.BEDROCK) {
@@ -726,8 +740,18 @@ public class BotCombat {
         dmg = Math.max(1.0, dmg);
 
         double fall = effectiveFall(b, m);
+        if (t instanceof Player sp && sp.isBlocking() && !isAxe(wt)) {
+            Vector look = sp.getEyeLocation().getDirection().setY(0);
+            Vector to = m.getLocation().toVector().subtract(sp.getLocation().toVector()).setY(0);
+            if (look.lengthSquared() > 1e-6 && to.lengthSquared() > 1e-6 && look.normalize().dot(to.normalize()) > 0) {
+                // blocked by the shield: no damage, no smash, no wind burst
+                m.swingMainHand();
+                t.getWorld().playSound(t.getLocation(), Sound.ITEM_SHIELD_BLOCK, 1f, 1f);
+                return;
+            }
+        }
         boolean smash = wt == Material.MACE && fall > 1.5 && !m.isOnGround();
-        boolean crit = on(b, "hit.crit") && !smash && !m.isOnGround() && m.getVelocity().getY() < 0
+        boolean crit = on(b, "hit.crit") && !smash && !m.isOnGround() && st.vy < -0.04
                 && (fall > 0 || st.pcrit > 0);
         if (crit) {
             dmg *= 1.5;
@@ -752,6 +776,7 @@ public class BotCombat {
 
         m.swingMainHand();
         t.damage(dmg, m);
+        hitEffects(t, w, crit, smash, fall);
 
         if (brokeShield && on(b, "stunslam.enabled")) {
             st.stunWindow = 30;
@@ -777,6 +802,30 @@ public class BotCombat {
         }
         String victim = t instanceof Player p ? p.getName() : t.getType().name();
         mgr.runCommands("integration.on-bot-hit", mgr.placeholders(b, m, "victim", victim));
+    }
+
+    /** Particles and sounds a real player's hit would show. */
+    private void hitEffects(LivingEntity t, ItemStack w, boolean crit, boolean smash, double fall) {
+        Location mid = t.getLocation().add(0, t.getHeight() * 0.5, 0);
+        if (crit) {
+            t.getWorld().spawnParticle(org.bukkit.Particle.CRIT, mid, 20, 0.3, 0.4, 0.3, 0.25);
+            t.getWorld().playSound(mid, Sound.ENTITY_PLAYER_ATTACK_CRIT, 1f, 1f);
+        } else if (!smash) {
+            t.getWorld().playSound(mid, Sound.ENTITY_PLAYER_ATTACK_STRONG, 1f, 1f);
+        }
+        if (!Bot.empty(w) && !w.getEnchantments().isEmpty()) {
+            t.getWorld().spawnParticle(org.bukkit.Particle.ENCHANTED_HIT, mid, 12, 0.3, 0.4, 0.3, 0.3);
+        }
+        if (smash) {
+            org.bukkit.block.data.BlockData bd = t.getLocation().subtract(0, 1, 0).getBlock().getBlockData();
+            if (bd.getMaterial().isAir()) {
+                bd = Material.DIRT.createBlockData();
+            }
+            t.getWorld().spawnParticle(org.bukkit.Particle.DUST_PILLAR, t.getLocation(), 30, 0.6, 0.1, 0.6, 0.15, bd);
+            Sound snd = fall > 5 ? Sound.ITEM_MACE_SMASH_GROUND_HEAVY
+                    : (t.isOnGround() ? Sound.ITEM_MACE_SMASH_GROUND : Sound.ITEM_MACE_SMASH_AIR);
+            t.getWorld().playSound(t.getLocation(), snd, 1f, 1f);
+        }
     }
 
     // ------------------------------------------------------------ shield (emulated)
@@ -836,11 +885,26 @@ public class BotCombat {
     // ------------------------------------------------------------ totems
 
     private void ensureTotem(Bot b) {
+        Bot.CombatState st = b.st;
         if (!on(b, "totem.refill") || !Bot.empty(b.offhand)) {
+            st.totemWait = 0;
             return;
         }
         int s = b.find(Material.TOTEM_OF_UNDYING);
-        if (s >= 0) {
+        if (s < 0) {
+            st.totemWait = 0;
+            return;
+        }
+        if (st.totemWait == 0) {
+            int rand = Math.max(0, intv(b, "totem.delay-random"));
+            st.totemWait = Math.max(1, intv(b, "totem.delay") + (rand > 0 ? ThreadLocalRandom.current().nextInt(rand + 1) : 0));
+        }
+        // like a player with the inventory open: no attacking while the totem is being moved
+        st.attackTimer = Math.max(st.attackTimer, 2);
+        if (--st.totemWait > 0) {
+            return;
+        }
+        {
             b.take(s, 1);
             b.offhand = new ItemStack(Material.TOTEM_OF_UNDYING);
             b.equipDirty = true;
@@ -1884,31 +1948,6 @@ public class BotCombat {
         return true;
     }
 
-    /** Grappling: reel the target in with a fishing rod. */
-    private boolean grapple(Bot b, Mannequin m, LivingEntity t, double dist) {
-        if (!on(b, "grapple.enabled") || !b.st.ready("grapple") || dist < 4.5 || dist > num(b, "grapple.range")) {
-            return false;
-        }
-        int rod = b.findIf(i -> i.getType() == Material.FISHING_ROD, true);
-        if (rod < 0) {
-            return false;
-        }
-        Vector pull = m.getLocation().toVector().subtract(t.getLocation().toVector()).setY(0);
-        if (pull.lengthSquared() < 1e-6) {
-            return false;
-        }
-        select(b, rod);
-        b.st.noSelect = 6;
-        aimAt(b, m, aimPoint(t));
-        m.swingMainHand();
-        pull.normalize().multiply(num(b, "grapple.strength"));
-        pull.setY(0.3);
-        t.setVelocity(t.getVelocity().add(pull));
-        m.getWorld().playSound(m.getLocation(), Sound.ENTITY_FISHING_BOBBER_RETRIEVE, 1f, 1f);
-        b.st.setCd("grapple", intv(b, "grapple.cooldown"));
-        return true;
-    }
-
     private int findBlockSlot(Bot b) {
         boolean keepObsidian = on(b, "crystal.enabled") || on(b, "anchor.enabled");
         return b.findIf(i -> {
@@ -1982,40 +2021,157 @@ public class BotCombat {
         }
     }
 
-    /** A player threw an ender pearl: bots that target them move to where it will land and wait. */
-    public void onEnemyPearl(Player p, EnderPearl pearl) {
-        for (Bot b : new ArrayList<>(mgr.all())) {
-            if (!b.combat || !on(b, "pearl.catch") || b.st.targetId == null
-                    || !b.st.targetId.equals(p.getUniqueId())) {
-                continue;
+    // ------------------------------------------------------------ pearl catch + grapple
+
+    private boolean airborneHigh(LivingEntity t, double minHeight) {
+        if (t.isOnGround()) {
+            return false;
+        }
+        Location l = t.getLocation();
+        for (int i = 1; i <= (int) Math.ceil(minHeight); i++) {
+            if (!l.clone().add(0, -i, 0).getBlock().isPassable()) {
+                return false;
             }
-            Mannequin m = mgr.entity(b);
-            if (m == null || !m.getWorld().equals(pearl.getWorld())) {
-                continue;
+        }
+        return true;
+    }
+
+    private boolean throwTrackedPearl(Bot b, Mannequin m, Vector dir, String plan, int slot) {
+        Location eye = m.getEyeLocation();
+        mgr.face(m, eye.clone().add(dir.clone().multiply(5)));
+        EnderPearl pearl = m.launchProjectile(EnderPearl.class, dir);
+        m.swingMainHand();
+        if (on(b, "items.consume")) {
+            b.take(slot, 1);
+        }
+        b.st.pearlId = pearl.getUniqueId();
+        b.st.pearlPlan = plan;
+        b.st.pearlAge = 0;
+        return true;
+    }
+
+    /**
+     * Pearl catch: throw a pearl, wind charge at your feet right after, and land above the target.
+     * Grapple: pearl at a target that is mid-air, teleport to them and mace them.
+     * Returns true while a throw is in flight (the bot stands and watches).
+     */
+    private boolean pearlTech(Bot b, Mannequin m, LivingEntity t, double dist) {
+        Bot.CombatState st = b.st;
+        if (st.pearlId != null) {
+            st.pearlAge++;
+            Entity pe = Bukkit.getEntity(st.pearlId);
+            if (pe == null || pe.isDead() || st.pearlAge > 200) {
+                st.pearlId = null;
+                st.pearlPlan = "";
+                return false;
             }
-            Vector pos = pearl.getLocation().toVector();
-            Vector vel = pearl.getVelocity().clone();
-            Location land = null;
-            int steps = 0;
-            for (int i = 0; i < 200; i++) {
-                Vector next = pos.clone().add(vel);
-                Block bl = pearl.getWorld().getBlockAt(next.getBlockX(), next.getBlockY(), next.getBlockZ());
-                if (!bl.isPassable()) {
-                    land = new Location(pearl.getWorld(), pos.getX(), pos.getY(), pos.getZ());
-                    steps = i;
-                    break;
+            if (st.windIn > 0 && --st.windIn == 0) {
+                int wc = b.find(Material.WIND_CHARGE);
+                if (wc >= 0 && !b.immovable) {
+                    Vector v = m.getVelocity();
+                    m.setRotation(m.getLocation().getYaw(), 90f);
+                    m.setVelocity(new Vector(v.getX(), 0.75, v.getZ()));
+                    m.launchProjectile(WindCharge.class, new Vector(0, -1, 0));
+                    m.swingMainHand();
+                    if (on(b, "items.consume")) {
+                        b.take(wc, 1);
+                    }
                 }
-                pos = next;
-                vel.multiply(0.99);
-                vel.setY(vel.getY() - 0.03);
-                if (pos.getY() < pearl.getWorld().getMinHeight()) {
-                    break;
-                }
             }
-            if (land != null) {
-                b.st.catchPoint = land;
-                b.st.catchTicks = steps + 30;
+            if (st.pearlPlan.equals("grapple")) {
+                aimAt(b, m, aimPoint(t));
             }
+            return true;
+        }
+        if (b.immovable) {
+            return false;
+        }
+        int pslot = b.find(Material.ENDER_PEARL);
+        if (pslot < 0) {
+            return false;
+        }
+        Location eye = m.getEyeLocation();
+
+        if (on(b, "grapple.enabled") && st.ready("grapple") && dist >= 5.0 && dist <= num(b, "grapple.range")
+                && airborneHigh(t, num(b, "grapple.min-height"))) {
+            double flight = Math.max(1.0, dist / 1.4);
+            Location p = aimPoint(t);
+            p.add(t.getVelocity().multiply(flight * 0.8));
+            p.add(0, 0.5 * 0.03 * flight * flight * 0.5, 0);
+            Vector dir = p.toVector().subtract(eye.toVector()).normalize().multiply(1.5);
+            st.setCd("grapple", intv(b, "grapple.cooldown"));
+            st.windIn = 0;
+            return throwTrackedPearl(b, m, dir, "grapple", pslot);
+        }
+
+        if (on(b, "pcatch.enabled") && st.ready("pcatch") && m.isOnGround()
+                && dist >= num(b, "pcatch.min-range") && dist <= num(b, "pcatch.max-range")
+                && b.find(Material.WIND_CHARGE) >= 0 && findWeapon(b, "MACE") >= 0) {
+            Vector u = t.getLocation().toVector().subtract(m.getLocation().toVector()).setY(0);
+            if (u.lengthSquared() < 1e-6) {
+                return false;
+            }
+            u.normalize();
+            String mode = str(b, "pcatch.mode");
+            double dy = t.getLocation().getY() - m.getLocation().getY();
+            if (mode.equals("auto")) {
+                mode = dy < -5 ? "down" : "up";
+            }
+            Vector dir = switch (mode) {
+                case "horizontal" -> u.clone().setY(0.25);
+                case "down" -> u.clone().multiply(0.8).setY(-0.15);
+                default -> u.clone().multiply(0.35).setY(1.0);
+            };
+            dir.normalize().multiply(1.5);
+            st.setCd("pcatch", intv(b, "pcatch.cooldown"));
+            st.windIn = Math.max(1, intv(b, "pcatch.wind-delay"));
+            return throwTrackedPearl(b, m, dir, "pcatch", pslot);
+        }
+        return false;
+    }
+
+    /** A bot's pearl hit something: teleport the bot there and continue the technique. */
+    public void onPearlLand(Bot b, Mannequin m, Location at) {
+        Bot.CombatState st = b.st;
+        String plan = st.pearlPlan;
+        st.pearlId = null;
+        st.pearlPlan = "";
+        st.windIn = 0;
+        if (at.getWorld() == null || !at.getWorld().equals(m.getWorld())) {
+            return;
+        }
+        Location dest = at.clone();
+        for (int i = 0; i < 3 && !dest.getBlock().isPassable(); i++) {
+            dest.add(0, 1, 0);
+        }
+        double bonusFall = 0;
+        if (plan.equals("pcatch")) {
+            double want = num(b, "pcatch.height");
+            int free = 0;
+            while (free < want && dest.clone().add(0, free + 2, 0).getBlock().isPassable()) {
+                free++;
+            }
+            dest.add(0, free, 0);
+        } else if (plan.equals("grapple")) {
+            Location l = dest.clone();
+            while (bonusFall < 10 && l.clone().add(0, -bonusFall - 1, 0).getBlock().isPassable()) {
+                bonusFall++;
+            }
+        }
+        Location cur = m.getLocation();
+        dest.setYaw(cur.getYaw());
+        dest.setPitch(cur.getPitch());
+        m.teleport(dest);
+        m.setVelocity(new Vector(0, plan.equals("pcatch") ? 0.1 : -0.1, 0));
+        st.peakY = dest.getY() + bonusFall;
+        m.getWorld().playSound(dest, Sound.ENTITY_PLAYER_TELEPORT, 1f, 1f);
+        if (on(b, "pearl.damage") && m.getHealth() > 6.0) {
+            m.setHealth(m.getHealth() - 5.0);
+        }
+        int mace = findWeapon(b, "MACE");
+        if (mace >= 0 && !plan.isEmpty()) {
+            select(b, mace);
+            st.noSelect = 20;
         }
     }
 

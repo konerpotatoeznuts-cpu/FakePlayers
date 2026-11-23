@@ -96,6 +96,8 @@ public final class PvpOptions {
         i("shield.axe-disable-ticks", 100, 10, Material.DIAMOND_AXE, "How long an axe hit disables a shield");
         // ---- survival
         b("totem.refill", true, Material.TOTEM_OF_UNDYING, "Keep a totem in the off hand");
+        i("totem.delay", 12, 0, Material.CLOCK, "Ticks the bot takes to put a new totem on (like opening the inventory)");
+        i("totem.delay-random", 6, 0, Material.CLOCK, "Extra random ticks added to the totem delay");
         b("heal.enabled", true, Material.GOLDEN_APPLE, "Eat and drink when hurt");
         d("heal.gap-health", 12, 1, Material.GOLDEN_APPLE, "Eat golden apples at or below this health");
         d("heal.egap-health", 7, 1, Material.ENCHANTED_GOLDEN_APPLE, "Eat enchanted apples at or below this health");
@@ -165,8 +167,16 @@ public final class PvpOptions {
         i("pearl.cooldown", 100, 10, Material.CLOCK, "Ticks between pearls");
         b("pearl.escape", true, Material.ENDER_PEARL, "Pearl away when low on health");
         d("pearl.escape-health", 6, 1, Material.REDSTONE, "Escape pearl at or below this health");
-        b("pearl.catch", false, Material.ENDER_EYE, "Run to where the target's pearl will land and wait for them");
-        b("pcrit.enabled", false, Material.ENDER_PEARL, "Pearl crit: pearl at the target, then crit the moment you land");
+        b("pearl.damage", true, Material.REDSTONE, "Pearl landings hurt the bot (5 damage like a real player)");
+        b("pcatch.enabled", false, Material.ENDER_EYE, "Pearl catch: pearl + wind charge to land above the target, then mace dive");
+        c("pcatch.mode", "auto", Material.ENDER_PEARL, "Pearl direction: up, horizontal, down or auto", "auto", "up", "horizontal", "down");
+        d("pcatch.min-range", 6.0, 1, Material.SPYGLASS, "Minimum distance to the target for a pearl catch");
+        d("pcatch.max-range", 30.0, 1, Material.SPYGLASS, "Maximum distance to the target for a pearl catch");
+        i("pcatch.wind-delay", 3, 0, Material.WIND_CHARGE, "Ticks between the pearl and the wind charge");
+        d("pcatch.height", 8.0, 1, Material.FEATHER, "How far above the landing spot the bot ends up");
+        i("pcatch.cooldown", 160, 20, Material.CLOCK, "Ticks between pearl catches");
+        b("pcrit.enabled", false, Material.DIAMOND_SWORD, "Punish crit: when you hit the bot and it is knocked up, it crits back while falling");
+        i("pcrit.window", 14, 4, Material.CLOCK, "Ticks after being hit in which the punish crit can land");
         // ---- swapping tricks
         b("swap.attribute", true, Material.NETHERITE_AXE, "Attribute swap: charge with the fastest weapon, hit with the best one");
         b("swap.breach", true, Material.MACE, "Breach swap: use a Breach mace for the smash if you have one");
@@ -183,10 +193,10 @@ public final class PvpOptions {
         // ---- stun slam
         b("stunslam.enabled", false, Material.NETHERITE_AXE, "After an axe hit breaks a shield, launch and mace smash straight away");
         // ---- grappling
-        b("grapple.enabled", false, Material.FISHING_ROD, "Pull the target in with a fishing rod");
-        d("grapple.range", 12.0, 1, Material.FISHING_ROD, "Max rod distance");
-        i("grapple.cooldown", 60, 10, Material.CLOCK, "Ticks between rod pulls");
-        d("grapple.strength", 0.9, 0.1, Material.LEAD, "How hard the target is pulled");
+        b("grapple.enabled", false, Material.ENDER_PEARL, "Grapple: pearl to a target that is mid-air, teleport to them, then mace them");
+        d("grapple.range", 24.0, 1, Material.SPYGLASS, "Max distance for a grapple pearl");
+        i("grapple.cooldown", 100, 10, Material.CLOCK, "Ticks between grapples");
+        d("grapple.min-height", 2.5, 0.5, Material.FEATHER, "Target must be this high above the ground");
         // ---- cart pvp
         b("cart.enabled", false, Material.TNT_MINECART, "Cart PvP: rail + TNT minecart on the target");
         c("cart.mode", "insta", Material.TNT_MINECART, "insta = blows up at once, xbow = a crossbow shot sets it off", "insta", "xbow");

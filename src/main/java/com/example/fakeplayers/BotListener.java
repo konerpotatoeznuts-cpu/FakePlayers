@@ -5,6 +5,7 @@ import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Sound;
+import org.bukkit.entity.EnderPearl;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Mannequin;
@@ -16,7 +17,7 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.EntityResurrectEvent;
-import org.bukkit.event.entity.ProjectileLaunchEvent;
+import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
@@ -133,12 +134,29 @@ public class BotListener implements Listener {
         });
     }
 
-    @EventHandler
-    public void onLaunch(ProjectileLaunchEvent e) {
-        if (e.getEntity() instanceof org.bukkit.entity.EnderPearl pearl
-                && pearl.getShooter() instanceof Player pl) {
-            mgr().combat().onEnemyPearl(pl, pearl);
+    /** Punish crit hook: remember that the bot was just hit. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBotHurt(EntityDamageByEntityEvent e) {
+        Bot bot = mgr().botOf(e.getEntity());
+        if (bot != null && e.getEntity() instanceof Mannequin m) {
+            mgr().combat().onHurt(bot, m, e.getDamager());
         }
+    }
+
+    /** Bot pearls are handled here so the bot lands where the technique wants it. */
+    @EventHandler
+    public void onPearlHit(ProjectileHitEvent e) {
+        if (!(e.getEntity() instanceof EnderPearl pearl) || !(pearl.getShooter() instanceof Mannequin sm)) {
+            return;
+        }
+        Bot bot = mgr().botOf(sm);
+        if (bot == null) {
+            return;
+        }
+        Location at = e.getHitEntity() != null ? e.getHitEntity().getLocation() : pearl.getLocation();
+        e.setCancelled(true);
+        pearl.remove();
+        mgr().combat().onPearlLand(bot, sm, at.clone());
     }
 
     @EventHandler
@@ -150,7 +168,7 @@ public class BotListener implements Listener {
         if (bot != null) {
             e.getDrops().clear();
             e.setDroppedExp(0);
-            if (plugin.getConfig().getBoolean("death.drop-items", true)) {
+            if (bot.dropItems) {
                 Location loc = dead.getLocation();
                 for (ItemStack it : bot.inv) {
                     if (!Bot.empty(it)) {
@@ -231,6 +249,7 @@ public class BotListener implements Listener {
 
         switch (e.getSlot()) {
             case BotGui.SLOT_INVULNERABLE -> b.invulnerable = !b.invulnerable;
+            case BotGui.SLOT_DROP -> b.dropItems = !b.dropItems;
             case BotGui.SLOT_IMMOVABLE -> {
                 b.immovable = !b.immovable;
                 if (m != null) {

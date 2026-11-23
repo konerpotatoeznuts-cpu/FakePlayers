@@ -40,8 +40,10 @@ public class Bot {
         public int drawTicks;
         public int pcrit;
         public Location lastLoc;
-        public Location catchPoint;
-        public int catchTicks;
+        public UUID pearlId;
+        public String pearlPlan = "";
+        public int windIn;
+        public int pearlAge;
         public int flight;
         public int flightTicks;
         public double peakY;
@@ -52,6 +54,8 @@ public class Bot {
         public boolean restoreChest;
         public boolean shieldRaised;
         public int webTicks;
+        public double vy;
+        public int totemWait;
         public double dirX;
         public double dirZ;
         public double speedFactor;
@@ -75,6 +79,7 @@ public class Bot {
     // saved settings
     public boolean immovable = false;
     public boolean invulnerable = false;
+    public boolean dropItems = true;
     public boolean combat = false;
     public boolean followNearestOp = false;
     public String followTarget = null;

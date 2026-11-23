@@ -135,7 +135,7 @@ public class BotManager {
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (bots.containsValue(b) && b.home != null && b.home.getWorld() != null) {
                 if (plugin.getConfig().getBoolean("death.restock", true)
-                        && plugin.getConfig().getBoolean("death.drop-items", true) && b.lastKit != null) {
+                        && b.dropItems && b.lastKit != null) {
                     Kits.apply(plugin, b, b.lastKit);
                 }
                 spawnEntity(b, b.home);
@@ -223,6 +223,7 @@ public class BotManager {
             y.set(p + "home", b.home);
             y.set(p + "immovable", b.immovable);
             y.set(p + "invulnerable", b.invulnerable);
+            y.set(p + "drop-items", b.dropItems);
             y.set(p + "combat", b.combat);
             y.set(p + "follow-nearest-op", b.followNearestOp);
             y.set(p + "follow-target", b.followTarget);
@@ -290,6 +291,7 @@ public class BotManager {
             b.home = s.getLocation("home");
             b.immovable = s.getBoolean("immovable");
             b.invulnerable = s.getBoolean("invulnerable");
+            b.dropItems = s.getBoolean("drop-items", true);
             b.combat = s.getBoolean("combat");
             b.followNearestOp = s.getBoolean("follow-nearest-op");
             b.followTarget = s.getString("follow-target");
