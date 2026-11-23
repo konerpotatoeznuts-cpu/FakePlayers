@@ -16,6 +16,7 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.EntityResurrectEvent;
+import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
@@ -133,6 +134,14 @@ public class BotListener implements Listener {
     }
 
     @EventHandler
+    public void onLaunch(ProjectileLaunchEvent e) {
+        if (e.getEntity() instanceof org.bukkit.entity.EnderPearl pearl
+                && pearl.getShooter() instanceof Player pl) {
+            mgr().combat().onEnemyPearl(pl, pearl);
+        }
+    }
+
+    @EventHandler
     public void onDeath(EntityDeathEvent e) {
         Entity dead = e.getEntity();
 
@@ -141,7 +150,7 @@ public class BotListener implements Listener {
         if (bot != null) {
             e.getDrops().clear();
             e.setDroppedExp(0);
-            if (plugin.getConfig().getBoolean("death.drop-items", false)) {
+            if (plugin.getConfig().getBoolean("death.drop-items", true)) {
                 Location loc = dead.getLocation();
                 for (ItemStack it : bot.inv) {
                     if (!Bot.empty(it)) {

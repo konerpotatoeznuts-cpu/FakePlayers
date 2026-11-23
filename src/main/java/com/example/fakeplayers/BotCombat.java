@@ -4,6 +4,8 @@ import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
+import org.bukkit.Registry;
 import org.bukkit.Sound;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
@@ -24,6 +26,8 @@ import org.bukkit.entity.Player;
 import org.bukkit.entity.SplashPotion;
 import org.bukkit.entity.Trident;
 import org.bukkit.entity.WindCharge;
+import org.bukkit.entity.minecart.ExplosiveMinecart;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.PotionMeta;
@@ -98,15 +102,29 @@ public class BotCombat {
         if (st.jumpedTicks > 0) {
             st.jumpedTicks--;
         }
+        if (st.pcrit > 0) {
+            st.pcrit--;
+        }
+        if (st.stunWindow > 0) {
+            st.stunWindow--;
+        }
+        if (st.noSelect > 0) {
+            st.noSelect--;
+        }
+        trackMotion(b, m);
 
         waterClutch(b, m);
         ensureTotem(b);
         handleEating(b, m);
+        restoreChestIfLanded(b, m);
+        escapeWeb(b, m);
 
         LivingEntity t = resolveTarget(b, m);
         if (t == null) {
             st.shielding = false;
+            setShieldVisual(b, m, false);
             st.drawTicks = 0;
+            endFlight(b, m);
             return st.eatTicks > 0;
         }
 
@@ -122,7 +140,11 @@ public class BotCombat {
         updateShield(b, m, dist);
 
         if (st.eatTicks > 0) {
-            engage(b, m, t, 0.4);
+            if (center < 7.0) {
+                backOff(b, m, t);
+            } else {
+                engage(b, m, t, 0.4);
+            }
             aimAt(b, m, aimPoint(t));
             return true;
         }
@@ -132,24 +154,56 @@ public class BotCombat {
         }
         buff(b, m, center);
 
+        if (elytra(b, m, t, center)) {
+            melee(b, m, t, dist);
+            return true;
+        }
         if (pearl(b, m, t, center)) {
             return true;
         }
-        if (!web(b, m, t, center) && !lava(b, m, t, center) && !crystal(b, m, t, center)) {
+        if (!web(b, m, t, center) && !lava(b, m, t, center) && !cart(b, m, t, center)
+                && !crystal(b, m, t, center)) {
             anchor(b, m, t, center);
         }
-        mace(b, m, t, center);
+        if (!spearmace(b, m, t, center)) {
+            mace(b, m, t, center);
+        }
+        grapple(b, m, t, center);
 
         if (ranged(b, m, t, center)) {
             engage(b, m, t, 0.8);
             return true;
         }
 
+        bridge(b, m, t);
         selectWeapon(b, m, t);
         aimAt(b, m, aimPoint(t));
         engage(b, m, t, 1.0);
         melee(b, m, t, dist);
         return true;
+    }
+
+    /** Teleport detection (pearl crit window) and highest point of the current jump or flight. */
+    private void trackMotion(Bot b, Mannequin m) {
+        Bot.CombatState st = b.st;
+        Location l = m.getLocation();
+        if (st.lastLoc != null && st.lastLoc.getWorld() != null && st.lastLoc.getWorld().equals(l.getWorld())
+                && st.lastLoc.distanceSquared(l) > 36.0 && on(b, "pcrit.enabled")) {
+            st.pcrit = 25;
+        }
+        st.lastLoc = l.clone();
+        if (m.isOnGround()) {
+            st.peakY = l.getY();
+        } else {
+            st.peakY = Math.max(st.peakY, l.getY());
+        }
+    }
+
+    private double effectiveFall(Bot b, Mannequin m) {
+        if (m.isOnGround()) {
+            return 0;
+        }
+        return Math.min(60.0, Math.max(m.getFallDistance(), b.st.peakY - m.getLocation().getY()));
     }
 
     // ------------------------------------------------------------ targeting
@@ -304,13 +358,19 @@ public class BotCombat {
 
     private void engage(Bot b, Mannequin m, LivingEntity t, double speedMul) {
         Bot.CombatState st = b.st;
-        if (b.immovable) {
+        if (b.immovable || st.reaction > 0 || st.flight != 0) {
             return;
         }
         Location ml = m.getLocation();
-        Location tl = t.getLocation();
-        double dx = tl.getX() - ml.getX();
-        double dz = tl.getZ() - ml.getZ();
+        Location goal = t.getLocation();
+        boolean catching = st.catchTicks > 0 && st.catchPoint != null && st.catchPoint.getWorld() != null
+                && st.catchPoint.getWorld().equals(ml.getWorld());
+        if (catching) {
+            goal = st.catchPoint;
+            st.catchTicks--;
+        }
+        double dx = goal.getX() - ml.getX();
+        double dz = goal.getZ() - ml.getZ();
         double h = Math.max(1e-4, Math.hypot(dx, dz));
         double ux = dx / h;
         double uz = dz / h;
@@ -319,23 +379,26 @@ public class BotCombat {
 
         double min = num(b, "move.min-distance");
         double max = num(b, "move.max-distance");
-        if (b.st.reaction > 0) {
-            return;
+        double f;
+        if (catching) {
+            f = h > 1.0 ? 1.0 : 0.0;
+        } else {
+            f = h > max ? 1.0 : (h < min ? -0.5 : 0.4);
         }
-        double f = h > max ? 1.0 : (h < min ? -1.0 : 0.15);
 
+        // light strafing: only up close, only while the attack recharges, and it flips rarely
         String mode = str(b, "move.strafe");
         double s = 0;
-        if (!"none".equals(mode) && h < 10) {
+        if (!catching && !"none".equals(mode) && h < 5.0 && st.attackTimer > 3) {
             if (--st.strafeTimer <= 0) {
-                int interval = Math.max(5, intv(b, "move.strafe-interval"));
-                st.strafeTimer = interval / 2 + ThreadLocalRandom.current().nextInt(interval);
-                double flip = "random".equals(mode) ? 0.5 : 0.2;
+                int interval = Math.max(10, intv(b, "move.strafe-interval"));
+                st.strafeTimer = interval + ThreadLocalRandom.current().nextInt(interval);
+                double flip = "random".equals(mode) ? 0.5 : 0.25;
                 if (rnd() < flip) {
                     st.strafeDir = -st.strafeDir;
                 }
             }
-            s = st.strafeDir * 0.9;
+            s = st.strafeDir * num(b, "move.strafe-amount");
         }
 
         boolean retreat = on(b, "move.retreat") && m.getHealth() <= num(b, "move.retreat-health");
@@ -347,17 +410,27 @@ public class BotCombat {
         double vx = ux * f + px * s;
         double vz = uz * f + pz * s;
         double len = Math.hypot(vx, vz);
+        boolean moving = len > 0.05;
         if (len > 1e-4) {
             vx /= len;
             vz /= len;
+        } else {
+            vx = 0;
+            vz = 0;
         }
         boolean sprint = f > 0 && h > 3.0;
         double speed = (sprint ? num(b, "move.sprint-speed") : num(b, "move.speed")) * speedMul;
-        mgr.walk(b, m, vx, vz, speed);
+        mgr.walkSmooth(b, m, vx, vz, speed, moving);
 
-        // jump for a critical hit just before the next swing
-        if (on(b, "move.jump-crit") && m.isOnGround() && h < 4.5 && !retreat
-                && st.attackTimer <= 2 && st.jumpedTicks == 0 && rnd() < num(b, "move.jump-chance") * 0.35) {
+        // jump for a critical hit just before the next swing (or right after a pearl teleport)
+        boolean wantJump = false;
+        if (st.pcrit > 0 && m.isOnGround() && h < 6.0) {
+            wantJump = true;
+        } else if (on(b, "move.jump-crit") && m.isOnGround() && h < 4.5 && !retreat
+                && st.attackTimer <= 2 && rnd() < num(b, "move.jump-chance") * 0.35) {
+            wantJump = true;
+        }
+        if (wantJump && st.jumpedTicks == 0) {
             Vector v = m.getVelocity();
             m.setVelocity(new Vector(v.getX(), 0.42, v.getZ()));
             st.jumpedTicks = 14;
@@ -411,7 +484,7 @@ public class BotCombat {
     }
 
     private void selectWeapon(Bot b, Mannequin m, LivingEntity t) {
-        if (b.st.eatTicks > 0) {
+        if (b.st.eatTicks > 0 || b.st.noSelect > 0) {
             return;
         }
         int want = -1;
@@ -519,6 +592,26 @@ public class BotCombat {
 
     // ------------------------------------------------------------ melee
 
+    private static boolean isMelee(ItemStack it) {
+        if (Bot.empty(it)) {
+            return false;
+        }
+        Material mt = it.getType();
+        String n = mt.name();
+        return n.endsWith("_SWORD") || n.endsWith("_AXE") || n.endsWith("_SPEAR")
+                || mt == Material.MACE || mt == Material.TRIDENT;
+    }
+
+    private int fastestCooldown(Bot b) {
+        int best = Integer.MAX_VALUE;
+        for (int i = 0; i < 9; i++) {
+            if (isMelee(b.inv[i])) {
+                best = Math.min(best, cooldownTicks(b, b.inv[i]));
+            }
+        }
+        return best == Integer.MAX_VALUE ? cooldownTicks(b, b.held()) : best;
+    }
+
     private void melee(Bot b, Mannequin m, LivingEntity t, double dist) {
         Bot.CombatState st = b.st;
         if (dist > num(b, "hit.reach") || st.shielding || st.attackTimer > 0) {
@@ -534,6 +627,8 @@ public class BotCombat {
         if (b.platform == Bot.Platform.BEDROCK) {
             double cps = Math.max(1.0, num(b, "hit.cps"));
             st.attackTimer = Math.max(1, (int) Math.round(20.0 / cps) + ThreadLocalRandom.current().nextInt(-1, 2));
+        } else if (on(b, "swap.attribute")) {
+            st.attackTimer = fastestCooldown(b);
         } else {
             st.attackTimer = cooldownTicks(b, b.held());
         }
@@ -555,9 +650,69 @@ public class BotCombat {
         return bonus;
     }
 
+    /** With a Breach mace the target's armor counts for less; scale the damage to match. */
+    private static double breachScale(ItemStack w, LivingEntity t) {
+        int lvl = w.getEnchantmentLevel(Enchantment.BREACH);
+        if (lvl <= 0) {
+            return 1.0;
+        }
+        double frac = Math.min(20.0, attr(t, Attribute.ARMOR)) / 25.0;
+        if (frac >= 0.99) {
+            return 1.0;
+        }
+        double left = frac * Math.max(0.0, 1.0 - 0.15 * lvl);
+        return (1.0 - left) / (1.0 - frac);
+    }
+
+    /** Expected value of hitting right now with the item in this hotbar slot. */
+    private double hitScore(Bot b, Mannequin m, LivingEntity t, int slot) {
+        ItemStack it = b.inv[slot];
+        if (!isMelee(it)) {
+            return -1;
+        }
+        double d = weaponDamage(it);
+        Material mt = it.getType();
+        double fall = effectiveFall(b, m);
+        if (mt == Material.MACE) {
+            if (fall > 1.5) {
+                d += maceBonus(fall) + 0.5 * it.getEnchantmentLevel(Enchantment.DENSITY) * fall;
+                if (on(b, "swap.breach")) {
+                    d *= breachScale(it, t);
+                }
+            }
+        } else if (isAxe(mt) && t instanceof Player p && p.isBlocking()) {
+            d += 6.0;
+        }
+        return d;
+    }
+
+    /** Attribute swap: the slot to hit with (the best item for this moment), which may differ from the held one. */
+    private int pickHitSlot(Bot b, Mannequin m, LivingEntity t) {
+        if (!on(b, "swap.attribute")) {
+            return b.selected;
+        }
+        int best = b.selected;
+        double bestScore = hitScore(b, m, t, best);
+        for (int i = 0; i < 9; i++) {
+            double sc = hitScore(b, m, t, i);
+            if (sc > bestScore + 0.01) {
+                bestScore = sc;
+                best = i;
+            }
+        }
+        return best;
+    }
+
     private void hit(Bot b, Mannequin m, LivingEntity t) {
-        ItemStack w = b.held();
-        Material wt = w == null ? Material.AIR : w.getType();
+        Bot.CombatState st = b.st;
+        int slot = pickHitSlot(b, m, t);
+        if (slot != b.selected) {
+            b.selected = slot;
+            b.equipDirty = true;
+        }
+        st.noSelect = Math.max(st.noSelect, 3);
+        ItemStack w = b.inv[slot];
+        Material wt = Bot.empty(w) ? Material.AIR : w.getType();
         double dmg = weaponDamage(w);
 
         PotionEffect strength = m.getPotionEffect(PotionEffectType.STRENGTH);
@@ -570,9 +725,10 @@ public class BotCombat {
         }
         dmg = Math.max(1.0, dmg);
 
-        double fall = m.getFallDistance();
+        double fall = effectiveFall(b, m);
         boolean smash = wt == Material.MACE && fall > 1.5 && !m.isOnGround();
-        boolean crit = on(b, "hit.crit") && !smash && !m.isOnGround() && fall > 0 && m.getVelocity().getY() < 0;
+        boolean crit = on(b, "hit.crit") && !smash && !m.isOnGround() && m.getVelocity().getY() < 0
+                && (fall > 0 || st.pcrit > 0);
         if (crit) {
             dmg *= 1.5;
         }
@@ -582,15 +738,25 @@ public class BotCombat {
             if (density > 0) {
                 dmg += 0.5 * density * fall;
             }
+            if (on(b, "swap.breach")) {
+                dmg *= breachScale(w, t);
+            }
         }
 
+        boolean brokeShield = false;
         if (t instanceof Player p && p.isBlocking() && isAxe(wt)) {
             p.setCooldown(Material.SHIELD, intv(b, "shield.axe-disable-ticks"));
             p.clearActiveItem();
+            brokeShield = true;
         }
 
         m.swingMainHand();
         t.damage(dmg, m);
+
+        if (brokeShield && on(b, "stunslam.enabled")) {
+            st.stunWindow = 30;
+            st.setCd("mace", 0);
+        }
 
         double extra = num(b, "hit.knockback-extra");
         if (extra > 0) {
@@ -601,6 +767,8 @@ public class BotCombat {
         }
         if (smash) {
             m.setFallDistance(0f);
+            st.peakY = m.getLocation().getY();
+            endFlight(b, m);
             int wind = w.getEnchantmentLevel(Enchantment.WIND_BURST);
             if (wind > 0) {
                 Vector v = m.getVelocity();
@@ -618,6 +786,30 @@ public class BotCombat {
     }
 
     private void updateShield(Bot b, Mannequin m, double dist) {
+        updateShieldLogic(b, dist);
+        setShieldVisual(b, m, b.st.shielding);
+    }
+
+    /** Raises or lowers the shield animation (uses the server's item-use API when this Paper build has it). */
+    private void setShieldVisual(Bot b, Mannequin m, boolean up) {
+        Bot.CombatState st = b.st;
+        if (!on(b, "shield.visual") || st.shieldRaised == up) {
+            return;
+        }
+        st.shieldRaised = up;
+        try {
+            if (up) {
+                EquipmentSlot hand = isShield(b.offhand) ? EquipmentSlot.OFF_HAND : EquipmentSlot.HAND;
+                LivingEntity.class.getMethod("startUsingItem", EquipmentSlot.class).invoke(m, hand);
+            } else {
+                LivingEntity.class.getMethod("clearActiveItem").invoke(m);
+            }
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            // this Paper build has no item-use API; blocking still works, only the animation is missing
+        }
+    }
+
+    private void updateShieldLogic(Bot b, double dist) {
         Bot.CombatState st = b.st;
         boolean has = isShield(b.offhand) || isShield(b.held());
         if (!has || !on(b, "shield.enabled") || st.shieldDisabled > 0) {
@@ -692,11 +884,104 @@ public class BotCombat {
         return out;
     }
 
+    private boolean hasHealItem(Bot b) {
+        return b.find(Material.ENCHANTED_GOLDEN_APPLE) >= 0 || b.find(Material.GOLDEN_APPLE) >= 0
+                || b.findIf(i -> (i.getType() == Material.POTION || i.getType() == Material.SPLASH_POTION)
+                && isHealingPotion(i), false) >= 0;
+    }
+
+    /** Throws an ender pearl directly away from the target. */
+    private boolean escapePearl(Bot b, Mannequin m, LivingEntity t) {
+        if (!b.st.ready("pearl")) {
+            return false;
+        }
+        int slot = b.find(Material.ENDER_PEARL);
+        if (slot < 0) {
+            return false;
+        }
+        Location eye = m.getEyeLocation();
+        Vector away = eye.toVector().subtract(t.getLocation().toVector()).setY(0);
+        if (away.lengthSquared() < 1e-6) {
+            away = new Vector(1, 0, 0);
+        }
+        Vector dir = away.normalize().setY(0.6).normalize().multiply(1.5);
+        mgr.face(m, eye.clone().add(dir.clone().multiply(5)));
+        m.launchProjectile(EnderPearl.class, dir);
+        m.swingMainHand();
+        if (on(b, "items.consume")) {
+            b.take(slot, 1);
+        }
+        b.st.setCd("pearl", intv(b, "pearl.cooldown"));
+        return true;
+    }
+
+    /** Walks straight away from the target (used while eating with an enemy close by). */
+    private void backOff(Bot b, Mannequin m, LivingEntity t) {
+        if (b.immovable) {
+            return;
+        }
+        Location ml = m.getLocation();
+        Location tl = t.getLocation();
+        double dx = ml.getX() - tl.getX();
+        double dz = ml.getZ() - tl.getZ();
+        double h = Math.max(1e-4, Math.hypot(dx, dz));
+        mgr.walkSmooth(b, m, dx / h, dz / h, num(b, "move.speed") * 0.5, true);
+    }
+
+    /** Stuck in a cobweb: pour water on it, or cut free after a while. */
+    private void escapeWeb(Bot b, Mannequin m) {
+        Bot.CombatState st = b.st;
+        Block feet = m.getLocation().getBlock();
+        Block eye = m.getEyeLocation().getBlock();
+        boolean stuck = feet.getType() == Material.COBWEB || eye.getType() == Material.COBWEB;
+        if (!stuck) {
+            st.webTicks = 0;
+            return;
+        }
+        st.webTicks++;
+        if (on(b, "water.web-escape") && st.webTicks >= 4 && st.ready("webwater")) {
+            int slot = b.find(Material.WATER_BUCKET);
+            if (slot >= 0) {
+                Block target = feet.getType() == Material.COBWEB ? feet : eye;
+                if (mgr.placeTemp(b, target, Material.WATER, 30, Material.BUCKET, Material.WATER_BUCKET)) {
+                    Location l = m.getLocation();
+                    m.setRotation(l.getYaw(), 90f);
+                    m.swingMainHand();
+                    if (on(b, "items.consume")) {
+                        b.convertOne(slot, Material.BUCKET);
+                    }
+                    st.setCd("webwater", 40);
+                    st.webTicks = 0;
+                    return;
+                }
+            }
+        }
+        int cut = intv(b, "web.cut-ticks");
+        if (cut > 0 && st.webTicks >= cut) {
+            if (feet.getType() == Material.COBWEB) {
+                feet.setType(Material.AIR);
+            }
+            if (eye.getType() == Material.COBWEB) {
+                eye.setType(Material.AIR);
+            }
+            m.swingMainHand();
+            st.webTicks = 0;
+        }
+    }
+
     private boolean heal(Bot b, Mannequin m) {
         if (!on(b, "heal.enabled") || b.st.eatTicks > 0) {
             return false;
         }
         double hp = m.getHealth();
+        if (on(b, "pearl.heal")
+                && (hp <= num(b, "heal.gap-health") || hp <= num(b, "heal.potion-health"))
+                && hasHealItem(b)) {
+            LivingEntity enemy = currentTarget(b);
+            if (enemy != null && reachDist(m, enemy) < 8.0 && escapePearl(b, m, enemy)) {
+                return true;
+            }
+        }
         if (hp <= num(b, "heal.egap-health")) {
             int s = b.find(Material.ENCHANTED_GOLDEN_APPLE);
             if (s >= 0) {
@@ -706,13 +991,13 @@ public class BotCombat {
         }
         if (hp <= num(b, "heal.potion-health")) {
             if (on(b, "heal.splash") && b.st.ready("splash")) {
-                int s = b.find(i -> i.getType() == Material.SPLASH_POTION && isHealingPotion(i), false);
+                int s = b.findIf(i -> i.getType() == Material.SPLASH_POTION && isHealingPotion(i), false);
                 if (s >= 0) {
                     throwSplashAtFeet(b, m, s);
                     return true;
                 }
             }
-            int s = b.find(i -> i.getType() == Material.POTION && isHealingPotion(i), false);
+            int s = b.findIf(i -> i.getType() == Material.POTION && isHealingPotion(i), false);
             if (s >= 0) {
                 startEat(b, s, "potion");
                 return true;
@@ -733,7 +1018,7 @@ public class BotCombat {
             return;
         }
         b.st.setCd("buff", intv(b, "buff.cooldown"));
-        int s = b.find(i -> {
+        int s = b.findIf(i -> {
             if (i.getType() != Material.POTION || isHealingPotion(i)) {
                 return false;
             }
@@ -879,6 +1164,7 @@ public class BotCombat {
         }
         m.swingMainHand();
         b.st.setCd("web", intv(b, "web.cooldown"));
+        b.st.setCd("lava", Math.max(0, intv(b, "lava.combo-delay")));
         return true;
     }
 
@@ -1267,7 +1553,8 @@ public class BotCombat {
             return;
         }
 
-        if (!b.st.ready("mace") || dist > num(b, "mace.launch-range") || dist < 2.0 || b.immovable) {
+        boolean stun = on(b, "stunslam.enabled") && b.st.stunWindow > 0;
+        if ((!stun && !b.st.ready("mace")) || dist > num(b, "mace.launch-range") || dist < 2.0 || b.immovable) {
             return;
         }
         if (on(b, "mace.wind-charge")) {
@@ -1311,7 +1598,7 @@ public class BotCombat {
         Material mat = b.inv[slot].getType();
         int arrowSlot = -1;
         if (mat != Material.TRIDENT && !on(b, "ranged.infinite-ammo")) {
-            arrowSlot = b.find(i -> i.getType() == Material.ARROW || i.getType() == Material.SPECTRAL_ARROW
+            arrowSlot = b.findIf(i -> i.getType() == Material.ARROW || i.getType() == Material.SPECTRAL_ARROW
                     || i.getType() == Material.TIPPED_ARROW, false);
             if (arrowSlot < 0) {
                 st.drawTicks = 0;
@@ -1357,10 +1644,385 @@ public class BotCombat {
         return true;
     }
 
+    // ------------------------------------------------------------ spear + mace, elytra, carts, grapple, bridging
+
+    private int enchantLevel(ItemStack it, String key) {
+        Enchantment e = Registry.ENCHANTMENT.get(NamespacedKey.minecraft(key));
+        return e == null ? 0 : it.getEnchantmentLevel(e);
+    }
+
+    /** Lunge with a spear to fly at the target, then swap to the mace for the smash. */
+    private boolean spearmace(Bot b, Mannequin m, LivingEntity t, double dist) {
+        Bot.CombatState st = b.st;
+        if (!on(b, "spearmace.enabled") || !st.ready("spearmace") || !m.isOnGround() || b.immovable) {
+            return false;
+        }
+        if (dist < num(b, "spearmace.min-range") || dist > num(b, "spearmace.max-range")) {
+            return false;
+        }
+        int spear = findWeapon(b, "SPEAR");
+        int mace = findWeapon(b, "MACE");
+        if (spear < 0 || mace < 0) {
+            return false;
+        }
+        int lunge = enchantLevel(b.inv[spear], "lunge");
+        select(b, spear);
+        Vector dir = aimPoint(t).toVector().subtract(m.getEyeLocation().toVector());
+        if (dir.lengthSquared() < 1e-6) {
+            return false;
+        }
+        dir.normalize();
+        Vector v = dir.multiply(0.9 + 0.25 * Math.max(1, lunge));
+        v.setY(Math.max(v.getY(), 0.0) + 0.45);
+        mgr.face(m, aimPoint(t));
+        m.setVelocity(v);
+        m.swingMainHand();
+        st.noSelect = 8;
+        st.setCd("spearmace", intv(b, "spearmace.cooldown"));
+        final int maceSlot = mace;
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            b.selected = maceSlot;
+            b.equipDirty = true;
+        }, 5L);
+        return true;
+    }
+
+    /** Elytra macing: take off with a rocket, climb above the target, then dive bomb it with the mace. */
+    private boolean elytra(Bot b, Mannequin m, LivingEntity t, double dist) {
+        Bot.CombatState st = b.st;
+        if (!on(b, "elytra.enabled")) {
+            endFlight(b, m);
+            return false;
+        }
+        Location ml = m.getLocation();
+        Location tl = t.getLocation();
+
+        if (st.flight == 0) {
+            if (!m.isOnGround() || !st.ready("elytra") || b.immovable || dist < 8 || dist > 70) {
+                return false;
+            }
+            int mace = findWeapon(b, "MACE");
+            int rocket = b.find(Material.FIREWORK_ROCKET);
+            if (mace < 0 || rocket < 0) {
+                return false;
+            }
+            boolean wearing = !Bot.empty(b.armor[1]) && b.armor[1].getType() == Material.ELYTRA;
+            if (!wearing) {
+                int ely = b.find(Material.ELYTRA);
+                if (ely < 0 || !on(b, "elytra.swap-chest")) {
+                    return false;
+                }
+                ItemStack old = b.armor[1];
+                b.armor[1] = b.inv[ely];
+                b.inv[ely] = old;
+                st.restoreChest = true;
+                b.equipDirty = true;
+            }
+            if (on(b, "items.consume")) {
+                b.take(rocket, 1);
+            }
+            m.setVelocity(new Vector(0, 0.8, 0));
+            m.getWorld().playSound(ml, Sound.ENTITY_FIREWORK_ROCKET_LAUNCH, 1f, 1f);
+            select(b, mace);
+            st.flight = 1;
+            st.flightTicks = 0;
+            st.peakY = ml.getY();
+            st.setCd("elytra", intv(b, "elytra.cooldown"));
+            return true;
+        }
+
+        st.flightTicks++;
+        st.noSelect = 6;
+        if ((m.isOnGround() && st.flightTicks > 6) || st.flightTicks > 240) {
+            endFlight(b, m);
+            return false;
+        }
+        if (!m.isOnGround() && !m.isGliding()) {
+            m.setGliding(true);
+        }
+        double dx = tl.getX() - ml.getX();
+        double dz = tl.getZ() - ml.getZ();
+        double h = Math.max(1e-4, Math.hypot(dx, dz));
+        Vector dir;
+        double speed;
+        if (st.flight == 1) {
+            if (ml.getY() - tl.getY() >= num(b, "elytra.height")) {
+                st.flight = 2;
+                st.peakY = Math.max(st.peakY, ml.getY());
+            }
+            dir = new Vector(dx / h * 0.35, 0.9, dz / h * 0.35);
+            speed = 1.1;
+            if (st.flightTicks % 25 == 10) {
+                int rocket = b.find(Material.FIREWORK_ROCKET);
+                if (rocket >= 0) {
+                    if (on(b, "items.consume")) {
+                        b.take(rocket, 1);
+                    }
+                    m.getWorld().playSound(ml, Sound.ENTITY_FIREWORK_ROCKET_LAUNCH, 1f, 1f);
+                }
+            }
+        } else {
+            dir = aimPoint(t).toVector().subtract(m.getEyeLocation().toVector());
+            speed = 1.5;
+        }
+        if (dir.lengthSquared() < 1e-6) {
+            return true;
+        }
+        dir.normalize();
+        float yaw = (float) Math.toDegrees(Math.atan2(-dir.getX(), dir.getZ()));
+        float pitch = (float) -Math.toDegrees(Math.asin(Math.max(-1.0, Math.min(1.0, dir.getY()))));
+        m.setRotation(yaw, pitch);
+        m.setVelocity(dir.multiply(speed));
+        return true;
+    }
+
+    private void endFlight(Bot b, Mannequin m) {
+        if (b.st.flight == 0) {
+            return;
+        }
+        b.st.flight = 0;
+        if (m.isGliding()) {
+            m.setGliding(false);
+        }
+    }
+
+    /** After an elytra flight, put the chestplate back on once the bot has landed. */
+    private void restoreChestIfLanded(Bot b, Mannequin m) {
+        Bot.CombatState st = b.st;
+        if (!st.restoreChest || st.flight != 0 || !m.isOnGround()) {
+            return;
+        }
+        if (!Bot.empty(b.armor[1]) && b.armor[1].getType() == Material.ELYTRA) {
+            int plate = b.findIf(i -> i.getType().name().endsWith("_CHESTPLATE"), false);
+            if (plate >= 0) {
+                ItemStack old = b.armor[1];
+                b.armor[1] = b.inv[plate];
+                b.inv[plate] = old;
+                b.equipDirty = true;
+            }
+        }
+        st.restoreChest = false;
+    }
+
+    /** Cart PvP: rail + TNT minecart next to the target; "insta" blows at once, "xbow" after a crossbow shot. */
+    private boolean cart(Bot b, Mannequin m, LivingEntity t, double dist) {
+        Bot.CombatState st = b.st;
+        if (!on(b, "cart.enabled") || !st.ready("cart") || dist > num(b, "cart.range")) {
+            return false;
+        }
+        int rail = b.find(Material.RAIL);
+        int tnt = b.find(Material.TNT_MINECART);
+        if (rail < 0 || tnt < 0) {
+            return false;
+        }
+        final boolean xbow = "xbow".equals(str(b, "cart.mode"));
+        int bow = xbow ? findWeapon(b, "CROSSBOW") : -1;
+        if (xbow && bow < 0) {
+            return false;
+        }
+        Block tb = t.getLocation().getBlock();
+        final double minT = num(b, "cart.min-target-damage");
+        double maxS = Math.min(num(b, "cart.max-self-damage"), m.getHealth() - 1.0);
+        Block spot = null;
+        double bestScore = -1e9;
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                Block c = tb.getRelative(dx, 0, dz);
+                if (!replaceable(c) || c.getType() == Material.COBWEB
+                        || !c.getRelative(BlockFace.DOWN).getType().isSolid()
+                        || c.equals(m.getLocation().getBlock())) {
+                    continue;
+                }
+                Location ctr = c.getLocation().add(0.5, 0.5, 0.5);
+                double td = estimate(4, ctr, t);
+                double sd = estimate(4, ctr, m);
+                if (td < minT || sd > maxS) {
+                    continue;
+                }
+                if (td - sd > bestScore) {
+                    bestScore = td - sd;
+                    spot = c;
+                }
+            }
+        }
+        if (spot == null || !mgr.placeTemp(b, spot, Material.RAIL, 60, null, null)) {
+            return false;
+        }
+        ExplosiveMinecart cart = spot.getWorld().spawn(spot.getLocation().add(0.5, 0.1, 0.5), ExplosiveMinecart.class);
+        if (on(b, "items.consume")) {
+            b.take(rail, 1);
+            b.take(tnt, 1);
+        }
+        if (xbow) {
+            select(b, bow);
+        }
+        m.swingMainHand();
+        st.noSelect = 12;
+        st.setCd("cart", intv(b, "cart.cooldown"));
+        final UUID id = cart.getUniqueId();
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            Entity e = Bukkit.getEntity(id);
+            Mannequin mm = mgr.entity(b);
+            if (e == null) {
+                return;
+            }
+            Location c = e.getLocation();
+            e.remove();
+            if (mm == null) {
+                return;
+            }
+            LivingEntity tt = currentTarget(b);
+            double td = tt == null ? 0 : estimate(4, c, tt);
+            double sd = estimate(4, c, mm);
+            if (xbow) {
+                mm.swingMainHand();
+            }
+            if (td >= minT && sd <= Math.min(num(b, "cart.max-self-damage"), mm.getHealth() - 1.0)) {
+                c.getWorld().createExplosion(c, 4f, false, on(b, "cart.block-damage"), mm);
+            }
+        }, xbow ? 10L : 2L);
+        return true;
+    }
+
+    /** Grappling: reel the target in with a fishing rod. */
+    private boolean grapple(Bot b, Mannequin m, LivingEntity t, double dist) {
+        if (!on(b, "grapple.enabled") || !b.st.ready("grapple") || dist < 4.5 || dist > num(b, "grapple.range")) {
+            return false;
+        }
+        int rod = b.findIf(i -> i.getType() == Material.FISHING_ROD, true);
+        if (rod < 0) {
+            return false;
+        }
+        Vector pull = m.getLocation().toVector().subtract(t.getLocation().toVector()).setY(0);
+        if (pull.lengthSquared() < 1e-6) {
+            return false;
+        }
+        select(b, rod);
+        b.st.noSelect = 6;
+        aimAt(b, m, aimPoint(t));
+        m.swingMainHand();
+        pull.normalize().multiply(num(b, "grapple.strength"));
+        pull.setY(0.3);
+        t.setVelocity(t.getVelocity().add(pull));
+        m.getWorld().playSound(m.getLocation(), Sound.ENTITY_FISHING_BOBBER_RETRIEVE, 1f, 1f);
+        b.st.setCd("grapple", intv(b, "grapple.cooldown"));
+        return true;
+    }
+
+    private int findBlockSlot(Bot b) {
+        boolean keepObsidian = on(b, "crystal.enabled") || on(b, "anchor.enabled");
+        return b.findIf(i -> {
+            Material mt = i.getType();
+            if (!mt.isBlock() || !mt.isSolid() || mgr.blocked(mt)) {
+                return false;
+            }
+            if (mt == Material.TNT || mt == Material.RESPAWN_ANCHOR || mt == Material.GLOWSTONE
+                    || mt.name().endsWith("SHULKER_BOX")) {
+                return false;
+            }
+            return !(mt == Material.OBSIDIAN && keepObsidian);
+        }, false);
+    }
+
+    /** With no pearls but blocks in the inventory: bridge over gaps and pillar up toward the target. */
+    private void bridge(Bot b, Mannequin m, LivingEntity t) {
+        Bot.CombatState st = b.st;
+        if (!on(b, "bridge.enabled") || !st.ready("bridge") || b.immovable || st.flight != 0) {
+            return;
+        }
+        if ((on(b, "pearl.enabled") || on(b, "pcrit.enabled")) && b.find(Material.ENDER_PEARL) >= 0) {
+            return;
+        }
+        int slot = findBlockSlot(b);
+        if (slot < 0) {
+            return;
+        }
+        Location ml = m.getLocation();
+        Location tl = t.getLocation();
+        double dx = tl.getX() - ml.getX();
+        double dz = tl.getZ() - ml.getZ();
+        double h = Math.hypot(dx, dz);
+        double dy = tl.getY() - ml.getY();
+        if (h > 40) {
+            return;
+        }
+        Material mat = b.inv[slot].getType();
+        int cleanup = intv(b, "bridge.cleanup-ticks");
+        Block feet = ml.getBlock();
+
+        if (on(b, "bridge.pillar") && dy >= 2.5 && h < 5) {
+            if (m.isOnGround()) {
+                Vector v = m.getVelocity();
+                m.setVelocity(new Vector(v.getX(), 0.42, v.getZ()));
+                return;
+            }
+            Block below = feet.getRelative(BlockFace.DOWN);
+            if (m.getVelocity().getY() < 0.25 && below.isEmpty() && mgr.placeTemp(b, below, mat, cleanup, null, null)) {
+                if (on(b, "items.consume")) {
+                    b.take(slot, 1);
+                }
+                m.swingMainHand();
+                st.setCd("bridge", 5);
+            }
+            return;
+        }
+        if (h > 2.0 && m.isOnGround()) {
+            double nx = dx / h;
+            double nz = dz / h;
+            Block ahead = ml.clone().add(nx, 0, nz).getBlock();
+            Block floorAhead = ahead.getRelative(BlockFace.DOWN);
+            if (floorAhead.isEmpty() && floorAhead.getRelative(BlockFace.DOWN).isEmpty()
+                    && mgr.placeTemp(b, floorAhead, mat, cleanup, null, null)) {
+                if (on(b, "items.consume")) {
+                    b.take(slot, 1);
+                }
+                m.swingMainHand();
+                st.setCd("bridge", 4);
+            }
+        }
+    }
+
+    /** A player threw an ender pearl: bots that target them move to where it will land and wait. */
+    public void onEnemyPearl(Player p, EnderPearl pearl) {
+        for (Bot b : new ArrayList<>(mgr.all())) {
+            if (!b.combat || !on(b, "pearl.catch") || b.st.targetId == null
+                    || !b.st.targetId.equals(p.getUniqueId())) {
+                continue;
+            }
+            Mannequin m = mgr.entity(b);
+            if (m == null || !m.getWorld().equals(pearl.getWorld())) {
+                continue;
+            }
+            Vector pos = pearl.getLocation().toVector();
+            Vector vel = pearl.getVelocity().clone();
+            Location land = null;
+            int steps = 0;
+            for (int i = 0; i < 200; i++) {
+                Vector next = pos.clone().add(vel);
+                Block bl = pearl.getWorld().getBlockAt(next.getBlockX(), next.getBlockY(), next.getBlockZ());
+                if (!bl.isPassable()) {
+                    land = new Location(pearl.getWorld(), pos.getX(), pos.getY(), pos.getZ());
+                    steps = i;
+                    break;
+                }
+                pos = next;
+                vel.multiply(0.99);
+                vel.setY(vel.getY() - 0.03);
+                if (pos.getY() < pearl.getWorld().getMinHeight()) {
+                    break;
+                }
+            }
+            if (land != null) {
+                b.st.catchPoint = land;
+                b.st.catchTicks = steps + 30;
+            }
+        }
+    }
+
     // ------------------------------------------------------------ pearls
 
     private boolean pearl(Bot b, Mannequin m, LivingEntity t, double dist) {
-        if (!on(b, "pearl.enabled") || !b.st.ready("pearl")) {
+        if ((!on(b, "pearl.enabled") && !on(b, "pcrit.enabled")) || !b.st.ready("pearl")) {
             return false;
         }
         int slot = b.find(Material.ENDER_PEARL);
@@ -1368,7 +2030,7 @@ public class BotCombat {
             return false;
         }
         boolean escape = on(b, "pearl.escape") && m.getHealth() <= num(b, "pearl.escape-health") && dist < 10;
-        boolean close = dist > num(b, "pearl.min-distance");
+        boolean close = dist > (on(b, "pcrit.enabled") ? 6.0 : num(b, "pearl.min-distance"));
         if (!escape && !close) {
             return false;
         }

@@ -54,14 +54,14 @@ public final class PvpOptions {
 
     static {
         // ---- aim
-        d("aim.speed", 30, 5, Material.SPYGLASS, "Max degrees the bot can turn per tick");
+        d("aim.speed", 22, 4, Material.SPYGLASS, "Max degrees the bot can turn per tick");
         d("aim.error", 1.5, 0.5, Material.TARGET, "Random aim wobble in degrees");
         i("aim.reaction-ticks", 4, 1, Material.CLOCK, "Ticks the bot waits after spotting a target");
         // ---- movement
         d("move.speed", 0.23, 0.01, Material.LEATHER_BOOTS, "Walk speed (blocks per tick)");
         d("move.sprint-speed", 0.28, 0.01, Material.GOLDEN_BOOTS, "Sprint speed (blocks per tick)");
         c("move.strafe", "circle", Material.COMPASS, "Strafing style", "none", "circle", "random");
-        i("move.strafe-interval", 25, 5, Material.REPEATER, "Ticks between strafe direction decisions");
+        i("move.strafe-interval", 45, 5, Material.REPEATER, "Ticks between strafe direction decisions");
         d("move.min-distance", 2.0, 0.25, Material.IRON_BARS, "Back off when closer than this");
         d("move.max-distance", 2.8, 0.25, Material.LEAD, "Close in when farther than this");
         b("move.jump-crit", true, Material.SLIME_BALL, "Jump before hitting to land critical hits");
@@ -165,6 +165,47 @@ public final class PvpOptions {
         i("pearl.cooldown", 100, 10, Material.CLOCK, "Ticks between pearls");
         b("pearl.escape", true, Material.ENDER_PEARL, "Pearl away when low on health");
         d("pearl.escape-health", 6, 1, Material.REDSTONE, "Escape pearl at or below this health");
+        b("pearl.catch", false, Material.ENDER_EYE, "Run to where the target's pearl will land and wait for them");
+        b("pcrit.enabled", false, Material.ENDER_PEARL, "Pearl crit: pearl at the target, then crit the moment you land");
+        // ---- swapping tricks
+        b("swap.attribute", true, Material.NETHERITE_AXE, "Attribute swap: charge with the fastest weapon, hit with the best one");
+        b("swap.breach", true, Material.MACE, "Breach swap: use a Breach mace for the smash if you have one");
+        // ---- spear + mace
+        b("spearmace.enabled", false, Material.TRIDENT, "Spear lunge, then swap to the mace and smash");
+        d("spearmace.min-range", 4.0, 0.5, Material.SPYGLASS, "Minimum distance to lunge");
+        d("spearmace.max-range", 10.0, 0.5, Material.SPYGLASS, "Maximum distance to lunge");
+        i("spearmace.cooldown", 80, 10, Material.CLOCK, "Ticks between lunges");
+        // ---- elytra mace / dive bomb
+        b("elytra.enabled", false, Material.ELYTRA, "Elytra macing: fly up with rockets, then dive bomb the target");
+        d("elytra.height", 14.0, 1, Material.FIREWORK_ROCKET, "Height above the target before diving");
+        i("elytra.cooldown", 200, 20, Material.CLOCK, "Ticks between flights");
+        b("elytra.swap-chest", true, Material.NETHERITE_CHESTPLATE, "Swap the chestplate for an elytra and back");
+        // ---- stun slam
+        b("stunslam.enabled", false, Material.NETHERITE_AXE, "After an axe hit breaks a shield, launch and mace smash straight away");
+        // ---- grappling
+        b("grapple.enabled", false, Material.FISHING_ROD, "Pull the target in with a fishing rod");
+        d("grapple.range", 12.0, 1, Material.FISHING_ROD, "Max rod distance");
+        i("grapple.cooldown", 60, 10, Material.CLOCK, "Ticks between rod pulls");
+        d("grapple.strength", 0.9, 0.1, Material.LEAD, "How hard the target is pulled");
+        // ---- cart pvp
+        b("cart.enabled", false, Material.TNT_MINECART, "Cart PvP: rail + TNT minecart on the target");
+        c("cart.mode", "insta", Material.TNT_MINECART, "insta = blows up at once, xbow = a crossbow shot sets it off", "insta", "xbow");
+        d("cart.range", 6.0, 0.5, Material.RAIL, "Max distance to the target for carts");
+        i("cart.cooldown", 80, 10, Material.CLOCK, "Ticks between carts");
+        d("cart.min-target-damage", 8, 1, Material.DIAMOND_SWORD, "Only blow up if estimated target damage is at least this");
+        d("cart.max-self-damage", 8, 1, Material.SHIELD, "Never blow up if estimated self damage exceeds this");
+        b("cart.block-damage", false, Material.TNT, "Let cart explosions destroy blocks");
+        // ---- bridging
+        b("bridge.enabled", true, Material.COBBLESTONE, "Build toward the target with blocks when there are no pearls");
+        b("bridge.pillar", true, Material.OAK_PLANKS, "Pillar up to targets above the bot");
+        i("bridge.cleanup-ticks", 400, 20, Material.SHEARS, "Remove bridge blocks after this many ticks (0 = never)");
+        // ---- misc
+        b("shield.visual", true, Material.SHIELD, "Show the shield raised while blocking");
+        d("move.strafe-amount", 0.15, 0.05, Material.COMPASS, "How much sideways movement (0 = none, 1 = lots)");
+        i("lava.combo-delay", 2, 1, Material.LAVA_BUCKET, "Ticks between the web and the lava on top of it");
+        b("water.web-escape", true, Material.WATER_BUCKET, "Place water on a web the bot is stuck in");
+        i("web.cut-ticks", 30, 5, Material.SHEARS, "Cut free of a web after this many ticks if no water (0 = never)");
+        b("pearl.heal", true, Material.GOLDEN_APPLE, "Pearl away before healing when an enemy is close");
     }
 
     public static Opt get(String path) {

@@ -16,6 +16,7 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Mannequin;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.EntityEquipment;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.persistence.PersistentDataType;
@@ -133,6 +134,10 @@ public class BotManager {
     public void respawnLater(Bot b, long delayTicks) {
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (bots.containsValue(b) && b.home != null && b.home.getWorld() != null) {
+                if (plugin.getConfig().getBoolean("death.restock", true)
+                        && plugin.getConfig().getBoolean("death.drop-items", true) && b.lastKit != null) {
+                    Kits.apply(plugin, b, b.lastKit);
+                }
                 spawnEntity(b, b.home);
             }
         }, delayTicks);
@@ -172,12 +177,29 @@ public class BotManager {
     /** Shows the bot's armor, selected hotbar item and off hand on the entity. */
     public void syncEquipment(Bot b, Mannequin m) {
         EntityEquipment eq = m.getEquipment();
-        eq.setHelmet(nz(b.armor[0]));
-        eq.setChestplate(nz(b.armor[1]));
-        eq.setLeggings(nz(b.armor[2]));
-        eq.setBoots(nz(b.armor[3]));
-        eq.setItemInMainHand(nz(b.inv[b.selected]));
-        eq.setItemInOffHand(nz(b.offhand));
+        eq.setItem(EquipmentSlot.HEAD, nz(b.armor[0]));
+        eq.setItem(EquipmentSlot.CHEST, nz(b.armor[1]));
+        eq.setItem(EquipmentSlot.LEGS, nz(b.armor[2]));
+        eq.setItem(EquipmentSlot.FEET, nz(b.armor[3]));
+        eq.setItem(EquipmentSlot.HAND, nz(b.inv[b.selected]));
+        eq.setItem(EquipmentSlot.OFF_HAND, nz(b.offhand));
+        pushEquipment(b, m);
+    }
+
+    /** Forces the equipment packet to nearby players so armor and held items always render. */
+    public void pushEquipment(Bot b, Mannequin m) {
+        java.util.Map<EquipmentSlot, ItemStack> map = new java.util.EnumMap<>(EquipmentSlot.class);
+        map.put(EquipmentSlot.HEAD, nz(b.armor[0]));
+        map.put(EquipmentSlot.CHEST, nz(b.armor[1]));
+        map.put(EquipmentSlot.LEGS, nz(b.armor[2]));
+        map.put(EquipmentSlot.FEET, nz(b.armor[3]));
+        map.put(EquipmentSlot.HAND, nz(b.inv[b.selected]));
+        map.put(EquipmentSlot.OFF_HAND, nz(b.offhand));
+        for (org.bukkit.entity.Player p : m.getWorld().getPlayers()) {
+            if (p.getLocation().distanceSquared(m.getLocation()) < 96 * 96) {
+                p.sendEquipmentChange(m, map);
+            }
+        }
     }
 
     /** Reads hands back from the entity (after a totem pop the game shrinks the entity's copy). */
@@ -213,6 +235,7 @@ public class BotManager {
             y.set(p + "queue", new ArrayList<>(b.queue));
             y.set(p + "platform", b.platform.name());
             y.set(p + "preset", b.preset);
+            y.set(p + "last-kit", b.lastKit);
             y.set(p + "selected", b.selected);
             for (Map.Entry<String, String> en : b.pvp.entrySet()) {
                 y.set(p + "pvp." + en.getKey().replace('.', '_'), en.getKey() + "=" + en.getValue());
@@ -283,6 +306,7 @@ public class BotManager {
                 b.platform = Bot.Platform.JAVA;
             }
             b.preset = s.getString("preset", "sword");
+            b.lastKit = s.getString("last-kit");
             b.selected = Math.max(0, Math.min(8, s.getInt("selected", 0)));
             ConfigurationSection pv = s.getConfigurationSection("pvp");
             if (pv != null) {
@@ -337,7 +361,7 @@ public class BotManager {
                 continue;
             }
             try {
-                if (b.equipDirty) {
+                if (b.equipDirty || tickCount % 20 == 0) {
                     syncEquipment(b, m);
                     b.equipDirty = false;
                 }
@@ -492,6 +516,19 @@ public class BotManager {
         } else {
             m.setVelocity(new Vector(v.getX() * 0.9 + nx * speed * 0.1, y, v.getZ() * 0.9 + nz * speed * 0.1));
         }
+    }
+
+    /** Walking used by combat: direction and speed ease in and out instead of snapping. */
+    public void walkSmooth(Bot b, Mannequin m, double wantX, double wantZ, double speed, boolean moving) {
+        Bot.CombatState st = b.st;
+        st.dirX += (wantX - st.dirX) * 0.3;
+        st.dirZ += (wantZ - st.dirZ) * 0.3;
+        st.speedFactor = moving ? Math.min(1.0, st.speedFactor + 0.25) : Math.max(0.0, st.speedFactor - 0.35);
+        double len = Math.hypot(st.dirX, st.dirZ);
+        if (len < 1e-4 || st.speedFactor <= 0.01) {
+            return;
+        }
+        walk(b, m, st.dirX / len, st.dirZ / len, speed * st.speedFactor * Math.min(1.0, len));
     }
 
     public void face(Mannequin m, Location target) {

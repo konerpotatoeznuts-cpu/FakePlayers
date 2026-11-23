@@ -38,6 +38,23 @@ public class Bot {
         public int shieldTimer;
         public int shieldDisabled;
         public int drawTicks;
+        public int pcrit;
+        public Location lastLoc;
+        public Location catchPoint;
+        public int catchTicks;
+        public int flight;
+        public int flightTicks;
+        public double peakY;
+        public int stunWindow;
+        public int noSelect;
+        public int baseSlot = -1;
+        public int swapBackTimer;
+        public boolean restoreChest;
+        public boolean shieldRaised;
+        public int webTicks;
+        public double dirX;
+        public double dirZ;
+        public double speedFactor;
         public final Set<UUID> crystals = new HashSet<>();
         public final Map<String, Integer> cd = new HashMap<>();
 
@@ -70,6 +87,7 @@ public class Bot {
     public Deque<String> queue = new ArrayDeque<>();
     public Platform platform = Platform.JAVA;
     public String preset = "sword";
+    public String lastKit = null;
     public Map<String, String> pvp = new LinkedHashMap<>();
 
     // saved inventory: 0-8 hotbar, 9-35 main
@@ -105,7 +123,7 @@ public class Bot {
     }
 
     /** Slot index (0-35) of the first matching item, hotbar first; -1 if none. */
-    public int find(Predicate<ItemStack> p, boolean hotbarOnly) {
+    public int findIf(Predicate<ItemStack> p, boolean hotbarOnly) {
         int max = hotbarOnly ? 9 : 36;
         for (int i = 0; i < max; i++) {
             if (!empty(inv[i]) && p.test(inv[i])) {
@@ -116,7 +134,7 @@ public class Bot {
     }
 
     public int find(Material mat) {
-        return find(i -> i.getType() == mat, false);
+        return findIf(i -> i.getType() == mat, false);
     }
 
     public void take(int slot, int amount) {

@@ -61,6 +61,7 @@ public final class Kits {
             }
         }
         b.equipDirty = true;
+        b.lastKit = name;
         return null;
     }
 
