@@ -1312,7 +1312,7 @@ public class BotCombat {
         int arrowSlot = -1;
         if (mat != Material.TRIDENT && !on(b, "ranged.infinite-ammo")) {
             arrowSlot = b.find(i -> i.getType() == Material.ARROW || i.getType() == Material.SPECTRAL_ARROW
-                    || i.getType() == Material.TIPPED_ARROW);
+                    || i.getType() == Material.TIPPED_ARROW, false);
             if (arrowSlot < 0) {
                 st.drawTicks = 0;
                 return false;
