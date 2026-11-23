@@ -31,7 +31,7 @@ bot in the PvP menu (click to change, right-click/shift for more) or with
 
 A value comes from: the bot's custom value, then its **preset**, then `pvp.defaults` in `config.yml`.
 Presets: sword, axe, mace, crystal, anchor, trap, ranged, pot, hybrid, bedrock-spam, cart-insta, cart-xbow,
-spearmace, elytra-mace, stunslam, web-lava, pearl-pvp, grapple. Each has a matching kit (`/bot kit <bot> <name>`).
+spearmace, elytra-mace, stunslam, web-lava, pearl-pvp, pearl-catch, grapple. Each has a matching kit (`/bot kit <bot> <name>`).
 `/bot preset <bot> <name>` picks one. `/bot kit <bot> [name]` fills the inventory from `pvp.kits`.
 `/bot target <bot> <player|off>` forces a target.
 
@@ -47,19 +47,21 @@ spearmace, elytra-mace, stunslam, web-lava, pearl-pvp, grapple. Each has a match
 | Anchor | places and charges an anchor, detonates under the same damage checks |
 | Mace | launches with a wind charge, steers in the air, dives, smash damage (Density, Wind Burst) |
 | Ranged | bow, crossbow, thrown trident with target leading and spread |
-| Pearls | closes distance, escapes when low, pearls away before healing (`pearl.heal`), catches the target's pearl landing (`pearl.catch`), pearl-crit (`pcrit.enabled`) |
+| Pearls | closes distance, escapes when low, pearls away before healing (`pearl.heal`), punish crit (`pcrit.enabled`, see below) |
+| Pearl catch | pearl + wind charge, bot lands above the target and mace dives (`pcatch.*`, mode up/horizontal/down/auto) |
+| Punish crit | after you hit the bot and knock it up, it crits back while falling (`pcrit.window`) |
+| Grapple | pearls at a target that is mid-air, teleports to them and maces (`grapple.*`) |
 | Cart | `cart.mode` insta or xbow: rail + TNT minecart on the target |
 | Spearmace | spear lunge, swap to mace and smash (attribute swapping) |
 | Elytra mace | swaps to elytra, rockets up, dives and maces, swaps chestplate back |
 | Stun slam | axe breaks shield, then launches and slams with the mace |
 | Web combo | web, then lava on top after `lava.combo-delay` ticks; bot places water on webs it is stuck in (`water.web-escape`) or cuts free (`web.cut-ticks`) |
-| Grapple | fishing-rod pull |
 | Bridge | builds toward the target with blocks when no pearls (`bridge.*`) |
 | Attribute swap / breach swap | picks the best hotbar item for the charge and the hit |
 | Water clutch | water bucket when falling |
 
 ## Death
-`death.drop-items: true` drops the bot's items and empties it; `death.restock: true` refills from its last kit on respawn.
+The hopper button in a bot's menu (default ON) makes it drop its items on death and empties it; `death.restock: true` refills from its last kit on respawn.
 
 ## Integration with your other plugins
 `integration.*` in `config.yml` runs console commands on events (`bot-kills-player`,
@@ -68,6 +70,7 @@ Items keep all their data, so custom weapons keep their names and models. Custom
 attribute modifiers on an item are used for its melee damage.
 
 ## Limits (please read)
+- Pearl catch and grapple are emulated: the bot's pearl is intercepted and the bot is teleported (with 5 pearl damage, `pearl.damage`). Pearl catch ends high above the landing spot (`pcatch.height`) and grapple gives the bot a fall bonus so the mace smashes.
 - Bots are mannequins, not real players: no tab-list entry, and other plugins do not see them as
   `Player`, so kill progression works through the console hooks above.
 - Bots have no pathfinding. They walk straight toward targets and hop over one-block steps, so
