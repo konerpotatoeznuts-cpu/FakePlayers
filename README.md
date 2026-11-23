@@ -30,7 +30,8 @@ bot in the PvP menu (click to change, right-click/shift for more) or with
 `/bot pvp <bot> set <option> <value>`, `/bot pvp <bot> list`, `/bot pvp <bot> reset [option]`.
 
 A value comes from: the bot's custom value, then its **preset**, then `pvp.defaults` in `config.yml`.
-Presets: sword, axe, mace, crystal, anchor, trap (web + lava + drain), ranged, pot, hybrid, bedrock-spam.
+Presets: sword, axe, mace, crystal, anchor, trap, ranged, pot, hybrid, bedrock-spam, cart-insta, cart-xbow,
+spearmace, elytra-mace, stunslam, web-lava, pearl-pvp, grapple. Each has a matching kit (`/bot kit <bot> <name>`).
 `/bot preset <bot> <name>` picks one. `/bot kit <bot> [name]` fills the inventory from `pvp.kits`.
 `/bot target <bot> <player|off>` forces a target.
 
@@ -46,8 +47,19 @@ Presets: sword, axe, mace, crystal, anchor, trap (web + lava + drain), ranged, p
 | Anchor | places and charges an anchor, detonates under the same damage checks |
 | Mace | launches with a wind charge, steers in the air, dives, smash damage (Density, Wind Burst) |
 | Ranged | bow, crossbow, thrown trident with target leading and spread |
-| Pearls | closes distance or escapes when low |
+| Pearls | closes distance, escapes when low, pearls away before healing (`pearl.heal`), catches the target's pearl landing (`pearl.catch`), pearl-crit (`pcrit.enabled`) |
+| Cart | `cart.mode` insta or xbow: rail + TNT minecart on the target |
+| Spearmace | spear lunge, swap to mace and smash (attribute swapping) |
+| Elytra mace | swaps to elytra, rockets up, dives and maces, swaps chestplate back |
+| Stun slam | axe breaks shield, then launches and slams with the mace |
+| Web combo | web, then lava on top after `lava.combo-delay` ticks; bot places water on webs it is stuck in (`water.web-escape`) or cuts free (`web.cut-ticks`) |
+| Grapple | fishing-rod pull |
+| Bridge | builds toward the target with blocks when no pearls (`bridge.*`) |
+| Attribute swap / breach swap | picks the best hotbar item for the charge and the hit |
 | Water clutch | water bucket when falling |
+
+## Death
+`death.drop-items: true` drops the bot's items and empties it; `death.restock: true` refills from its last kit on respawn.
 
 ## Integration with your other plugins
 `integration.*` in `config.yml` runs console commands on events (`bot-kills-player`,
@@ -61,6 +73,6 @@ attribute modifiers on an item are used for its melee damage.
 - Bots have no pathfinding. They walk straight toward targets and hop over one-block steps, so
   mazes and caves will stop them.
 - Crystal and anchor damage is an estimate (ignores line of sight and protection enchantments).
-- Breach does not reduce armor, and shields are emulated (no raised-shield animation).
+- Breach does not reduce armor, and shields are emulated (the raised animation is tried via `shield.visual`).
 - Bots place and break blocks directly and do not ask WorldGuard. Use `build.blocked-materials`.
 - Written against Paper 26.2 docs but not yet compiled or tested in-game.
