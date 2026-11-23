@@ -32,8 +32,9 @@ build:
 death:
   # ticks until a killed bot respawns at its home. -1 = bot is removed instead.
   respawn-delay-ticks: 100
-  # true = the bot's inventory drops on death (and is emptied). false = it keeps its inventory.
-  drop-items: false
+  # Dropping items on death is now a per-bot toggle in the bot's menu (hopper button, default ON).
+  # true = on respawn a bot that dropped its items refills from the last kit you gave it (/bot kit).
+  restock: true
 
 chat:
   # MiniMessage with <bot> and <message>
@@ -47,6 +48,56 @@ chat:
 # ---------------------------------------------------------------------------
 pvp:
   presets:
+    cart-insta:
+      cart.enabled: true
+      cart.mode: insta
+      bridge.enabled: true
+      shield.enabled: false
+    cart-xbow:
+      cart.enabled: true
+      cart.mode: xbow
+      cart.range: 10.0
+      shield.enabled: false
+    spearmace:
+      spearmace.enabled: true
+      mace.enabled: true
+      swap.breach: true
+      shield.enabled: false
+    elytra-mace:
+      elytra.enabled: true
+      mace.enabled: true
+      swap.breach: true
+      shield.enabled: false
+    stunslam:
+      stunslam.enabled: true
+      weapon.shield-break: true
+      mace.enabled: true
+      weapon.prefer: "AXE,MACE,SWORD"
+    web-lava:
+      web.enabled: true
+      lava.enabled: true
+      lava.require-web: true
+      lava.combo-delay: 2
+      drain.enabled: true
+      water.web-escape: true
+    pearl-pvp:
+      pearl.enabled: true
+      pearl.escape: true
+      pearl.heal: true
+    pcrit:
+      pcrit.enabled: true
+      hit.crit: true
+      move.jump-crit: false
+    pearl-catch:
+      pcatch.enabled: true
+      pcatch.mode: auto
+      mace.enabled: true
+      swap.breach: true
+      shield.enabled: false
+    grapple:
+      grapple.enabled: true
+      mace.enabled: true
+      shield.enabled: false
     sword:
       shield.enabled: true
       heal.enabled: true
@@ -121,6 +172,113 @@ pvp:
   # Loadouts: /bot kit <bot> [name] or the kit button. Format: MATERIAL [amount] [enchantment=level] [potion=type]
   # Armor goes into armor slots, a SHIELD goes to the off hand, everything else fills the hotbar then the inventory.
   kits:
+    cart-insta:
+      - NETHERITE_HELMET protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS protection=4 unbreaking=3
+      - NETHERITE_BOOTS protection=4 unbreaking=3
+      - NETHERITE_SWORD sharpness=5 unbreaking=3
+      - RAIL 32
+      - TNT_MINECART 16
+      - COBBLESTONE 64
+      - GOLDEN_APPLE 16
+      - TOTEM_OF_UNDYING 3
+    cart-xbow:
+      - NETHERITE_HELMET protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS protection=4 unbreaking=3
+      - NETHERITE_BOOTS protection=4 unbreaking=3
+      - NETHERITE_SWORD sharpness=5 unbreaking=3
+      - CROSSBOW quick_charge=3 unbreaking=3
+      - RAIL 32
+      - TNT_MINECART 16
+      - ARROW 32
+      - GOLDEN_APPLE 16
+      - TOTEM_OF_UNDYING 3
+    spearmace:
+      - NETHERITE_HELMET protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS protection=4 unbreaking=3
+      - NETHERITE_BOOTS protection=4 unbreaking=3 feather_falling=4
+      - NETHERITE_SPEAR lunge=3 unbreaking=3
+      - MACE density=5 breach=4 unbreaking=3
+      - GOLDEN_APPLE 16
+      - TOTEM_OF_UNDYING 3
+      - WATER_BUCKET
+    elytra-mace:
+      - NETHERITE_HELMET protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS protection=4 unbreaking=3
+      - NETHERITE_BOOTS protection=4 unbreaking=3 feather_falling=4
+      - ELYTRA unbreaking=3
+      - MACE density=5 unbreaking=3
+      - FIREWORK_ROCKET 64
+      - WATER_BUCKET
+      - GOLDEN_APPLE 16
+      - TOTEM_OF_UNDYING 3
+    stunslam:
+      - NETHERITE_HELMET protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS protection=4 unbreaking=3
+      - NETHERITE_BOOTS protection=4 unbreaking=3 feather_falling=4
+      - NETHERITE_AXE sharpness=5 unbreaking=3
+      - MACE density=5 breach=4 unbreaking=3
+      - WIND_CHARGE 64
+      - GOLDEN_APPLE 16
+      - TOTEM_OF_UNDYING 3
+    web-lava:
+      - NETHERITE_HELMET protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS protection=4 unbreaking=3
+      - NETHERITE_BOOTS protection=4 unbreaking=3
+      - NETHERITE_SWORD sharpness=5 unbreaking=3
+      - COBWEB 32
+      - LAVA_BUCKET
+      - WATER_BUCKET
+      - BUCKET
+      - GOLDEN_APPLE 16
+      - TOTEM_OF_UNDYING 3
+    pearl-pvp:
+      - NETHERITE_HELMET protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS protection=4 unbreaking=3
+      - NETHERITE_BOOTS protection=4 unbreaking=3
+      - NETHERITE_SWORD sharpness=5 unbreaking=3
+      - ENDER_PEARL 16
+      - COBBLESTONE 64
+      - GOLDEN_APPLE 16
+      - ENCHANTED_GOLDEN_APPLE 4
+      - TOTEM_OF_UNDYING 3
+    pearl-catch:
+      - NETHERITE_HELMET protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS protection=4 unbreaking=3
+      - NETHERITE_BOOTS protection=4 unbreaking=3 feather_falling=4
+      - MACE density=5 breach=4 unbreaking=3
+      - ENDER_PEARL 16
+      - WIND_CHARGE 64
+      - WATER_BUCKET
+      - GOLDEN_APPLE 16
+      - TOTEM_OF_UNDYING 3
+    pcrit:
+      - NETHERITE_HELMET protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS protection=4 unbreaking=3
+      - NETHERITE_BOOTS protection=4 unbreaking=3
+      - NETHERITE_SWORD sharpness=5 unbreaking=3
+      - GOLDEN_APPLE 16
+      - TOTEM_OF_UNDYING 3
+    grapple:
+      - NETHERITE_HELMET protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS protection=4 unbreaking=3
+      - NETHERITE_BOOTS protection=4 unbreaking=3 feather_falling=4
+      - MACE density=5 breach=4 unbreaking=3
+      - ENDER_PEARL 16
+      - WIND_CHARGE 64
+      - WATER_BUCKET
+      - GOLDEN_APPLE 16
+      - TOTEM_OF_UNDYING 3
     sword:
       - NETHERITE_HELMET protection=4 unbreaking=3
       - NETHERITE_CHESTPLATE protection=4 unbreaking=3
