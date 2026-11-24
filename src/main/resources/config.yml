@@ -413,7 +413,17 @@ integration:
   # Run by "/bot use <bot>".
   on-use: []
 
+tablist:
+  # Show bots in the player list (best effort, uses server packets).
+  enabled: true
+
 messages:
+  # Leave a message empty ("") to turn it off. Tags: <bot> <killer> <victim>
+  bot-join: "<yellow><bot> joined the game"
+  bot-leave: "<yellow><bot> left the game"
+  bot-kill: "<red><victim> was slain by <bot>"
+  bot-death: "<white><bot> was slain by <killer>"
+  bot-death-other: "<white><bot> died"
   prefix: "<gray>[<aqua>Bots</aqua>]</gray> "
   no-bot: "<red>No bot named <white>%name%</white>.</red>"
   exists: "<red>A bot named <white>%name%</white> already exists.</red>"
