@@ -11,6 +11,7 @@ public class FakePlayersPlugin extends JavaPlugin {
 
     private BotManager manager;
     private final BotLinks links = new BotLinks();
+    private BotScript scripts;
     private final MiniMessage mm = MiniMessage.miniMessage();
 
     @Override
@@ -18,6 +19,8 @@ public class FakePlayersPlugin extends JavaPlugin {
         saveDefaultConfig();
         PvpOptions.writeDefaults(getConfig());
         saveConfig();
+        scripts = new BotScript(this);
+        scripts.load();
         manager = new BotManager(this);
         manager.load();
 
@@ -52,6 +55,10 @@ public class FakePlayersPlugin extends JavaPlugin {
     /** Sends a MiniMessage line with the plugin prefix. */
     public void info(CommandSender to, String miniMessage) {
         to.sendMessage(mm.deserialize(getConfig().getString("messages.prefix", "") + miniMessage));
+    }
+
+    public BotScript scripts() {
+        return scripts;
     }
 
     public BotLinks links() {

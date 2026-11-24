@@ -20,7 +20,7 @@ public class BotCommand implements CommandExecutor, TabCompleter {
     private static final List<String> SUBS = List.of(
             "help", "spawn", "remove", "list", "config", "pvp", "inv", "platform", "preset", "kit", "target",
             "select", "tp", "goto", "follow", "look", "say", "equip", "place", "break", "attack", "queue",
-            "loop", "set", "addline", "clearlines", "use", "respawn", "reload", "link", "unlink");
+            "loop", "set", "addline", "clearlines", "use", "respawn", "reload", "link", "unlink", "waypoint", "script", "patrol", "reply", "greet");
 
     private static final List<String> SET_KEYS = List.of(
             "skin", "invulnerable", "immovable", "followop", "autochat", "chatinterval", "speed", "leave", "rejoin");
@@ -139,6 +139,62 @@ public class BotCommand implements CommandExecutor, TabCompleter {
                 }
                 plugin.info(sender, "<green>Linked " + n + " bot(s) to " + who.getName()
                         + "'s held item. Creative + OP: left-click = go, right-click = teleport, hit an entity = attack.");
+                return true;
+            }
+            case "waypoint" -> {
+                String act = args.length > 1 ? args[1].toLowerCase(Locale.ROOT) : "list";
+                switch (act) {
+                    case "set" -> {
+                        if (!(sender instanceof Player wp) || args.length < 3) {
+                            plugin.msg(sender, "bad-args", "usage", "/bot waypoint set <name> (as a player)");
+                            return true;
+                        }
+                        plugin.scripts().set(args[2], wp.getLocation());
+                        plugin.info(sender, "<green>Waypoint <white>" + args[2] + "</white> saved here.");
+                    }
+                    case "remove" -> {
+                        if (args.length < 3) {
+                            plugin.msg(sender, "bad-args", "usage", "/bot waypoint remove <name>");
+                            return true;
+                        }
+                        plugin.info(sender, plugin.scripts().remove(args[2]) ? "<green>Removed." : "<red>No such waypoint.");
+                    }
+                    default -> plugin.info(sender, "<yellow>Waypoints: <white>" + String.join(", ", plugin.scripts().names()));
+                }
+                return true;
+            }
+            case "script" -> {
+                org.bukkit.configuration.ConfigurationSection sec = plugin.getConfig().getConfigurationSection("scripts");
+                if (args.length < 2 || args[1].equalsIgnoreCase("list")) {
+                    plugin.info(sender, "<yellow>Scripts: <white>"
+                            + (sec == null ? "none" : String.join(", ", sec.getKeys(false))));
+                    return true;
+                }
+                if (args.length < 4 || !args[1].equalsIgnoreCase("run")) {
+                    plugin.msg(sender, "bad-args", "usage", "/bot script run <bot|all> <name> | /bot script list");
+                    return true;
+                }
+                List<String> acts = plugin.getConfig().getStringList("scripts." + args[3]);
+                if (acts.isEmpty()) {
+                    plugin.info(sender, "<red>No script named " + args[3] + " in config.yml (scripts:).");
+                    return true;
+                }
+                List<Bot> who = new ArrayList<>();
+                if (args[2].equalsIgnoreCase("all")) {
+                    who.addAll(mgr().all());
+                } else if (mgr().get(args[2]) != null) {
+                    who.add(mgr().get(args[2]));
+                } else {
+                    plugin.msg(sender, "no-bot", "name", args[2]);
+                    return true;
+                }
+                for (Bot sb : who) {
+                    sb.queue.clear();
+                    sb.walkTarget = null;
+                    sb.waitTicks = 0;
+                    sb.queue.addAll(acts);
+                }
+                plugin.info(sender, "<green>Script started on " + who.size() + " bot(s).");
                 return true;
             }
             case "unlink" -> {
@@ -357,13 +413,57 @@ public class BotCommand implements CommandExecutor, TabCompleter {
                 }
             }
             case "goto" -> {
-                if (rest.length < 3) {
-                    plugin.msg(sender, "bad-args", "usage", "/bot goto <bot> <x> <y> <z>");
+                if (rest.length < 1 || (rest.length == 2)) {
+                    plugin.msg(sender, "bad-args", "usage", "/bot goto <bot> <x> <y> <z|waypoint>");
                     return true;
                 }
                 b.queue.clear();
                 b.waitTicks = 0;
                 mgr().runAction(b, m, "goto " + String.join(" ", rest));
+            }
+            case "patrol" -> {
+                if (rest.length < 1) {
+                    plugin.msg(sender, "bad-args", "usage", "/bot patrol <bot> <waypoint...|off>");
+                    return true;
+                }
+                b.patrol.clear();
+                b.patrolIdx = 0;
+                b.patrolActive = false;
+                if (!rest[0].equalsIgnoreCase("off")) {
+                    b.patrol.addAll(Arrays.asList(rest));
+                }
+                mgr().save();
+                plugin.msg(sender, "done");
+                return true;
+            }
+            case "reply" -> {
+                if (rest.length >= 1 && rest[0].equalsIgnoreCase("list")) {
+                    b.replies.forEach((k, v) -> sender.sendMessage(k + " -> " + v));
+                    return true;
+                }
+                if (rest.length >= 2 && rest[0].equalsIgnoreCase("remove")) {
+                    b.replies.remove(rest[1].toLowerCase(Locale.ROOT));
+                } else if (rest.length >= 3 && rest[0].equalsIgnoreCase("add")) {
+                    b.replies.put(rest[1].toLowerCase(Locale.ROOT).replace("|", ""),
+                            String.join(" ", Arrays.copyOfRange(rest, 2, rest.length)));
+                } else {
+                    plugin.msg(sender, "bad-args", "usage",
+                            "/bot reply <bot> add <keyword> <response...> | remove <keyword> | list");
+                    return true;
+                }
+                mgr().save();
+                plugin.msg(sender, "done");
+                return true;
+            }
+            case "greet" -> {
+                if (rest.length < 1) {
+                    plugin.msg(sender, "bad-args", "usage", "/bot greet <bot> <text...|off>  (%player% = name)");
+                    return true;
+                }
+                b.greet = rest[0].equalsIgnoreCase("off") ? null : String.join(" ", rest);
+                mgr().save();
+                plugin.msg(sender, "done");
+                return true;
             }
             case "follow" -> {
                 if (rest.length < 1) {
@@ -374,9 +474,20 @@ public class BotCommand implements CommandExecutor, TabCompleter {
             }
             case "look" -> {
                 if (rest.length < 1) {
-                    plugin.msg(sender, "bad-args", "usage", "/bot look <bot> <player|yaw pitch>");
+                    plugin.msg(sender, "bad-args", "usage", "/bot look <bot> <player [continuous]|yaw pitch|off>");
                     return true;
                 }
+                if (rest[0].equalsIgnoreCase("off")) {
+                    b.lookAt = null;
+                    plugin.msg(sender, "done");
+                    return true;
+                }
+                if (rest.length >= 2 && rest[1].equalsIgnoreCase("continuous")) {
+                    b.lookAt = rest[0];
+                    plugin.msg(sender, "done");
+                    return true;
+                }
+                b.lookAt = null;
                 mgr().runAction(b, m, "look " + String.join(" ", rest));
             }
             case "say" -> {
@@ -541,6 +652,8 @@ public class BotCommand implements CommandExecutor, TabCompleter {
                 "/bot select <bot> <1-9> - choose the held hotbar slot",
                 "/bot tp|goto|follow|look|say|equip|place|break|use ...",
                 "/bot queue <bot> <action...> | clear, /bot loop <bot> <on|off>",
+                "/bot waypoint set|remove|list <name>, /bot patrol <bot> <waypoints...|off>, /bot goto <bot> <waypoint>",
+                "/bot script run <bot|all> <name> (scripts in config.yml), /bot reply <bot> add|remove|list, /bot greet <bot> <text|off>",
                 "/bot link <bot|all> [player] - hold a non-block item first; /bot unlink <bot|all> [player]",
                 "/bot set <bot> <key> <value>, /bot addline|clearlines <bot> [text], /bot reload"
         };
@@ -556,7 +669,7 @@ public class BotCommand implements CommandExecutor, TabCompleter {
             filter(SUBS, args[0], out);
         } else if (args.length == 2) {
             String sub = args[0].toLowerCase(Locale.ROOT);
-            if (!sub.equals("spawn") && !sub.equals("list") && !sub.equals("reload") && !sub.equals("help")) {
+            if (!sub.equals("spawn") && !sub.equals("waypoint") && !sub.equals("script") && !sub.equals("list") && !sub.equals("reload") && !sub.equals("help")) {
                 List<String> names = new ArrayList<>();
                 for (Bot b : mgr().all()) {
                     names.add(b.name);
@@ -569,6 +682,9 @@ public class BotCommand implements CommandExecutor, TabCompleter {
         } else if (args.length == 3) {
             String sub = args[0].toLowerCase(Locale.ROOT);
             switch (sub) {
+                case "waypoint" -> filter(List.of("set", "remove", "list"), args[2], out);
+                case "patrol", "goto" -> filter(plugin.scripts().names(), args[2], out);
+                case "reply" -> filter(List.of("add", "remove", "list"), args[2], out);
                 case "link", "unlink" -> {
                     for (Player op : Bukkit.getOnlinePlayers()) {
                         if (op.getName().toLowerCase(Locale.ROOT).startsWith(args[2].toLowerCase(Locale.ROOT))) {
@@ -590,14 +706,14 @@ public class BotCommand implements CommandExecutor, TabCompleter {
                     for (Player p : Bukkit.getOnlinePlayers()) {
                         names.add(p.getName());
                     }
-                    if (!sub.equals("look")) {
-                        names.add("off");
-                    }
+                    names.add("off");
                     filter(names, args[2], out);
                 }
                 default -> {
                 }
             }
+        } else if (args.length == 4 && args[0].equalsIgnoreCase("look")) {
+            filter(List.of("continuous"), args[3], out);
         } else if (args.length == 4 && args[0].equalsIgnoreCase("pvp")) {
             String act = args[2].toLowerCase(Locale.ROOT);
             if (act.equals("set") || act.equals("get") || act.equals("reset")) {

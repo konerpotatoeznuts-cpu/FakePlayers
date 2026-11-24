@@ -54,6 +54,7 @@ public class Bot {
         public boolean restoreChest;
         public boolean shieldRaised;
         public int webTicks;
+        public boolean smArming;
         public double vy;
         public int totemWait;
         public double dirX;
@@ -81,6 +82,14 @@ public class Bot {
     public boolean invulnerable = false;
     public boolean dropItems = true;
     public boolean leaveOnDeath = false;
+    public String lookAt = null;
+    public List<String> patrol = new ArrayList<>();
+    public int patrolIdx = 0;
+    public boolean patrolActive = false;
+    public Map<String, String> replies = new LinkedHashMap<>();
+    public String greet = null;
+    public final Map<UUID, Long> greeted = new HashMap<>();
+    public long lastReply = -1000;
     public int rejoinSeconds = 10;
     public boolean combat = false;
     public boolean followNearestOp = false;

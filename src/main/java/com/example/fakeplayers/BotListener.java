@@ -73,6 +73,14 @@ public class BotListener implements Listener {
         p.openInventory(new BotGui(bot).getInventory());
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onChat(io.papermc.paper.event.player.AsyncChatEvent e) {
+        Player p = e.getPlayer();
+        String text = net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText()
+                .serialize(e.message());
+        Bukkit.getScheduler().runTask(plugin, () -> mgr().npcReply(p, text));
+    }
+
     @EventHandler
     public void onJoin(PlayerJoinEvent e) {
         Player p = e.getPlayer();

@@ -168,7 +168,7 @@ public class BotCombat {
                 && !crystal(b, m, t, center)) {
             anchor(b, m, t, center);
         }
-        if (!spearmace(b, m, t, center)) {
+        if (!spearmace(b, m, t, center) && !lungeSwap(b, m, t, center)) {
             mace(b, m, t, center);
         }
 
@@ -631,8 +631,46 @@ public class BotCombat {
         }
     }
 
+    /**
+     * Stun slam: falling onto a blocking player, the axe disables the shield and the mace smashes in the same tick.
+     */
+    private boolean stunSlam(Bot b, Mannequin m, LivingEntity t, double dist) {
+        Bot.CombatState st = b.st;
+        if (!on(b, "stunslam.enabled") || m.isOnGround() || !st.ready("stunslam") || dist > num(b, "hit.reach")
+                || !(t instanceof Player sp) || !sp.isBlocking() || effectiveFall(b, m) < 1.5) {
+            return false;
+        }
+        Vector look = sp.getEyeLocation().getDirection().setY(0);
+        Vector to = m.getLocation().toVector().subtract(sp.getLocation().toVector()).setY(0);
+        if (look.lengthSquared() < 1e-6 || to.lengthSquared() < 1e-6 || look.normalize().dot(to.normalize()) <= 0) {
+            return false;
+        }
+        int axe = findWeapon(b, "AXE");
+        int mace = findWeapon(b, "MACE");
+        if (axe < 0 || mace < 0) {
+            return false;
+        }
+        // 1) axe: disable the shield
+        b.selected = axe;
+        sp.setCooldown(Material.SHIELD, intv(b, "shield.axe-disable-ticks"));
+        sp.clearActiveItem();
+        m.swingMainHand();
+        t.getWorld().playSound(t.getLocation(), Sound.ITEM_SHIELD_BREAK, 1f, 1f);
+        // 2) mace: smash straight away, same tick
+        b.selected = mace;
+        b.equipDirty = true;
+        st.noSelect = Math.max(st.noSelect, 4);
+        st.attackTimer = cooldownTicks(b, b.inv[mace]);
+        st.setCd("stunslam", 10);
+        hit(b, m, t);
+        return true;
+    }
+
     private void melee(Bot b, Mannequin m, LivingEntity t, double dist) {
         Bot.CombatState st = b.st;
+        if (stunSlam(b, m, t, dist)) {
+            return;
+        }
         if (dist > num(b, "hit.reach") || st.shielding || st.attackTimer > 0) {
             return;
         }
@@ -1725,12 +1763,107 @@ public class BotCombat {
     }
 
     /** Lunge with a spear to fly at the target, then swap to the mace for the smash. */
-    private boolean spearmace(Bot b, Mannequin m, LivingEntity t, double dist) {
+    /** Hotbar slot of the fast item the bot waits with: an empty slot (bare hand) or a quick weapon. */
+    private int lungeFastSlot(Bot b, int spear) {
+        String want = str(b, "lungeswap.fast-item");
+        if ("hand".equals(want) || "auto".equals(want)) {
+            for (int i = 0; i < 9; i++) {
+                if (Bot.empty(b.inv[i])) {
+                    return i;
+                }
+            }
+            if ("hand".equals(want)) {
+                return -1;
+            }
+        }
+        int best = -1;
+        int bestCd = Integer.MAX_VALUE;
+        for (int i = 0; i < 9; i++) {
+            if (i == spear || !isMelee(b.inv[i]) || b.inv[i].getType() == Material.MACE) {
+                continue;
+            }
+            String n = b.inv[i].getType().name();
+            if ("sword".equals(want) && !n.endsWith("_SWORD") || "axe".equals(want) && !n.endsWith("_AXE")) {
+                continue;
+            }
+            int cd = cooldownTicks(b, b.inv[i]);
+            if (cd < bestCd) {
+                bestCd = cd;
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Lunge swapping (attribute swap): wait holding a fast item until its attack cooldown is full, then switch to
+     * the Lunge spear and jab in the same tick, so the lunge uses the fast item's cooldown. The bot swaps straight
+     * back and repeats at the fast item's rate.
+     */
+    private boolean lungeSwap(Bot b, Mannequin m, LivingEntity t, double dist) {
         Bot.CombatState st = b.st;
-        if (!on(b, "spearmace.enabled") || !st.ready("spearmace") || !m.isOnGround() || b.immovable) {
+        if (!on(b, "lungeswap.enabled") || b.immovable || st.shielding || st.eatTicks > 0) {
             return false;
         }
-        if (dist < num(b, "spearmace.min-range") || dist > num(b, "spearmace.max-range")) {
+        double lMax = m.isOnGround() ? num(b, "lungeswap.max-range") : num(b, "lungeswap.air-range");
+        if (dist < num(b, "lungeswap.min-range") || dist > lMax) {
+            return false;
+        }
+        int spear = findWeapon(b, "SPEAR");
+        if (spear < 0) {
+            return false;
+        }
+        int fast = lungeFastSlot(b, spear);
+        if (fast < 0) {
+            return false;
+        }
+        // hold the fast item while the cooldown refills
+        st.noSelect = Math.max(st.noSelect, 2);
+        if (b.selected != fast) {
+            b.selected = fast;
+            b.equipDirty = true;
+        }
+        if (!st.ready("lungeswap")) {
+            return false;
+        }
+        Vector dir = aimPoint(t).toVector().subtract(m.getEyeLocation().toVector());
+        if (dir.lengthSquared() < 1e-6) {
+            return false;
+        }
+        // same tick: swap to the spear and jab
+        b.selected = spear;
+        b.equipDirty = true;
+        int lunge = enchantLevel(b.inv[spear], "lunge");
+        dir.normalize();
+        Vector v = dir.multiply(0.6 + 0.2 * Math.max(1, lunge));
+        if (m.isOnGround()) {
+            v.setY(Math.max(v.getY(), 0.0) + 0.1);
+        }
+        mgr.face(m, aimPoint(t));
+        m.setVelocity(v);
+        m.swingMainHand();
+        m.getWorld().playSound(m.getLocation(), Sound.ITEM_TRIDENT_RIPTIDE_1, 0.6f, 1.4f);
+        int cd = intv(b, "lungeswap.override-cooldown");
+        if (cd <= 0) {
+            cd = cooldownTicks(b, b.inv[fast]);
+        }
+        st.setCd("lungeswap", Math.max(2, cd));
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            b.selected = fast;
+            b.equipDirty = true;
+        }, 1L);
+        return true;
+    }
+
+    private boolean spearmace(Bot b, Mannequin m, LivingEntity t, double dist) {
+        Bot.CombatState st = b.st;
+        if (!on(b, "spearmace.enabled") || !st.ready("spearmace") || b.immovable) {
+            st.smArming = false;
+            return false;
+        }
+        double maxR = m.isOnGround() ? num(b, "spearmace.max-range") : num(b, "spearmace.air-range");
+        if (dist < num(b, "spearmace.min-range") || dist > maxR) {
+            st.smArming = false;
             return false;
         }
         int spear = findWeapon(b, "SPEAR");
@@ -1738,8 +1871,30 @@ public class BotCombat {
         if (spear < 0 || mace < 0) {
             return false;
         }
+        // lunge swapping: wait with a fast item until its cooldown is full, then swap to the spear in the same tick
+        int fast = on(b, "spearmace.attribute-swap") ? lungeFastSlot(b, spear) : -1;
+        if (fast >= 0) {
+            if (!st.smArming) {
+                st.smArming = true;
+                st.setCd("smarm", cooldownTicks(b, b.inv[fast]));
+            }
+            st.noSelect = Math.max(st.noSelect, 2);
+            if (b.selected != fast) {
+                b.selected = fast;
+                b.equipDirty = true;
+            }
+            if (!st.ready("smarm")) {
+                return true;
+            }
+            st.smArming = false;
+        }
         int lunge = enchantLevel(b.inv[spear], "lunge");
-        select(b, spear);
+        if (fast >= 0) {
+            b.selected = spear;
+            b.equipDirty = true;
+        } else {
+            select(b, spear);
+        }
         Vector dir = aimPoint(t).toVector().subtract(m.getEyeLocation().toVector());
         if (dir.lengthSquared() < 1e-6) {
             return false;
@@ -1750,13 +1905,14 @@ public class BotCombat {
         mgr.face(m, aimPoint(t));
         m.setVelocity(v);
         m.swingMainHand();
-        st.noSelect = 8;
-        st.setCd("spearmace", intv(b, "spearmace.cooldown"));
+        long swapDelay = fast >= 0 ? Math.max(1, intv(b, "spearmace.swap-delay")) : 5L;
+        st.noSelect = (int) swapDelay + 3;
+        st.setCd("spearmace", dist > 12.0 ? intv(b, "spearmace.chain-cooldown") : intv(b, "spearmace.cooldown"));
         final int maceSlot = mace;
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             b.selected = maceSlot;
             b.equipDirty = true;
-        }, 5L);
+        }, swapDelay);
         return true;
     }
 

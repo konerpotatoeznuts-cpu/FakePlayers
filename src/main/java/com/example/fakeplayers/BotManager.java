@@ -269,6 +269,13 @@ public class BotManager {
             y.set(p + "invulnerable", b.invulnerable);
             y.set(p + "drop-items", b.dropItems);
             y.set(p + "leave-on-death", b.leaveOnDeath);
+            y.set(p + "patrol", b.patrol);
+            y.set(p + "greet", b.greet);
+            List<String> rl = new ArrayList<>();
+            for (Map.Entry<String, String> re : b.replies.entrySet()) {
+                rl.add(re.getKey() + "|" + re.getValue());
+            }
+            y.set(p + "replies", rl);
             y.set(p + "rejoin-seconds", b.rejoinSeconds);
             y.set(p + "combat", b.combat);
             y.set(p + "follow-nearest-op", b.followNearestOp);
@@ -339,6 +346,14 @@ public class BotManager {
             b.invulnerable = s.getBoolean("invulnerable");
             b.dropItems = s.getBoolean("drop-items", true);
             b.leaveOnDeath = s.getBoolean("leave-on-death", false);
+            b.patrol = new ArrayList<>(s.getStringList("patrol"));
+            b.greet = s.getString("greet");
+            for (String rl : s.getStringList("replies")) {
+                int bar = rl.indexOf('|');
+                if (bar > 0) {
+                    b.replies.put(rl.substring(0, bar), rl.substring(bar + 1));
+                }
+            }
             b.rejoinSeconds = s.getInt("rejoin-seconds", 10);
             b.combat = s.getBoolean("combat");
             b.followNearestOp = s.getBoolean("follow-nearest-op");
@@ -431,6 +446,7 @@ public class BotManager {
             }
         }
 
+        greetTick(b, m);
         nav.checkAttack(b, m);
         if (b.clickTarget != null && nav.stealthTick(b, m)) {
             return;
@@ -444,6 +460,14 @@ public class BotManager {
         // travelling to a block the player clicked with a linked item
         if (nav.tick(b, m)) {
             return;
+        }
+
+        // continuous look
+        if (b.lookAt != null) {
+            Player lp = Bukkit.getPlayerExact(b.lookAt);
+            if (lp != null && lp.getWorld().equals(m.getWorld())) {
+                face(m, lp.getEyeLocation());
+            }
         }
 
         // following
@@ -474,6 +498,81 @@ public class BotManager {
         }
 
         processQueue(b, m);
+        patrolTick(b);
+    }
+
+    // ------------------------------------------------------------ patrol, greetings, replies
+
+    private void patrolTick(Bot b) {
+        if (b.patrol.isEmpty() || b.queue.size() > 0 || b.waitTicks > 0 || b.navGoal != null) {
+            return;
+        }
+        if (b.walkTarget != null) {
+            return;
+        }
+        if (b.patrolActive) {
+            b.patrolActive = false;
+            b.waitTicks = Math.max(0, plugin.getConfig().getInt("patrol.pause-ticks", 60));
+            return;
+        }
+        Location wp = plugin.scripts().get(b.patrol.get(b.patrolIdx % b.patrol.size()));
+        b.patrolIdx++;
+        if (wp != null) {
+            b.walkTarget = wp;
+            b.walkTicks = 0;
+            b.patrolActive = true;
+        }
+    }
+
+    private void greetTick(Bot b, Mannequin m) {
+        if (b.greet == null || tickCount % 10 != 0) {
+            return;
+        }
+        double range = plugin.getConfig().getDouble("npc.greet-range", 6.0);
+        long cd = plugin.getConfig().getLong("npc.greet-cooldown-seconds", 300) * 20L;
+        for (Player p : m.getWorld().getPlayers()) {
+            if (p.getGameMode() == GameMode.SPECTATOR
+                    || p.getLocation().distanceSquared(m.getLocation()) > range * range) {
+                continue;
+            }
+            Long last = b.greeted.get(p.getUniqueId());
+            if (last != null && tickCount - last < cd) {
+                continue;
+            }
+            b.greeted.put(p.getUniqueId(), tickCount);
+            face(m, p.getEyeLocation());
+            say(b, b.greet.replace("%player%", p.getName()));
+            return;
+        }
+    }
+
+    /** Bots answer chat keywords from nearby players. */
+    public void npcReply(Player p, String text) {
+        String low = text.toLowerCase(Locale.ROOT);
+        double range = plugin.getConfig().getDouble("npc.reply-range", 24.0);
+        int delay = plugin.getConfig().getInt("npc.reply-delay-ticks", 30);
+        for (Bot b : all()) {
+            Mannequin m = entity(b);
+            if (b.replies.isEmpty() || m == null || !m.getWorld().equals(p.getWorld())
+                    || m.getLocation().distance(p.getLocation()) > range || tickCount - b.lastReply < 40) {
+                continue;
+            }
+            for (Map.Entry<String, String> en : b.replies.entrySet()) {
+                if (low.contains(en.getKey())) {
+                    b.lastReply = tickCount;
+                    String resp = en.getValue().replace("%player%", p.getName());
+                    long wait = delay + ThreadLocalRandom.current().nextInt(20);
+                    Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                        Mannequin mm = entity(b);
+                        if (mm != null) {
+                            face(mm, p.getEyeLocation());
+                            say(b, resp);
+                        }
+                    }, wait);
+                    break;
+                }
+            }
+        }
     }
 
     // ------------------------------------------------------------ placed blocks
@@ -647,11 +746,33 @@ public class BotManager {
         try {
             switch (p[0].toLowerCase(Locale.ROOT)) {
                 case "goto" -> {
-                    String[] c = arg.split("\\s+");
-                    b.walkTarget = new Location(m.getWorld(),
-                            Double.parseDouble(c[0]), Double.parseDouble(c[1]), Double.parseDouble(c[2]));
-                    b.walkTicks = 0;
+                    String[] c = arg.trim().split("\\s+");
+                    if (c.length == 1) {
+                        Location wp = plugin.scripts().get(c[0]);
+                        if (wp == null) {
+                            plugin.getLogger().warning("Unknown waypoint: " + c[0]);
+                        } else {
+                            b.walkTarget = wp;
+                            b.walkTicks = 0;
+                        }
+                    } else {
+                        b.walkTarget = new Location(m.getWorld(),
+                                Double.parseDouble(c[0]), Double.parseDouble(c[1]), Double.parseDouble(c[2]));
+                        b.walkTicks = 0;
+                    }
                 }
+                case "tp" -> {
+                    Location wp = plugin.scripts().get(arg.trim());
+                    if (wp != null) {
+                        m.teleport(wp);
+                    }
+                }
+                case "sneak" -> m.setPose(arg.trim().equalsIgnoreCase("on")
+                        ? org.bukkit.entity.Pose.SNEAKING : org.bukkit.entity.Pose.STANDING, arg.trim().equalsIgnoreCase("on"));
+                case "swing" -> m.swingMainHand();
+                case "target" -> b.forcedTarget = arg.trim().equalsIgnoreCase("off") ? null : arg.trim();
+                case "command" -> Bukkit.dispatchCommand(Bukkit.getConsoleSender(),
+                        arg.replace("%bot%", b.name));
                 case "wait" -> b.waitTicks = Integer.parseInt(arg.trim());
                 case "say" -> say(b, arg);
                 case "select" -> {
@@ -660,7 +781,11 @@ public class BotManager {
                 }
                 case "look" -> {
                     String[] c = arg.trim().split("\\s+");
-                    if (c.length >= 2) {
+                    if (c[0].equalsIgnoreCase("off")) {
+                        b.lookAt = null;
+                    } else if (c.length >= 2 && c[1].equalsIgnoreCase("continuous")) {
+                        b.lookAt = c[0];
+                    } else if (c.length >= 2) {
                         m.setRotation(Float.parseFloat(c[0]), Float.parseFloat(c[1]));
                     } else {
                         Player t = Bukkit.getPlayerExact(c[0]);

@@ -193,9 +193,19 @@ public final class PvpOptions {
         b("swap.attribute", true, Material.NETHERITE_AXE, "Attribute swap: charge with the fastest weapon, hit with the best one");
         b("swap.breach", true, Material.MACE, "Breach swap: use a Breach mace for the smash if you have one");
         // ---- spear + mace
+        b("lungeswap.enabled", false, Material.NETHERITE_SPEAR, "Lunge swapping: lunge with the spear using a fast item's cooldown (same-tick attribute swap)");
+        d("lungeswap.min-range", 3.0, 0.5, Material.SPYGLASS, "Minimum distance to lunge");
+        d("lungeswap.max-range", 12.0, 0.5, Material.SPYGLASS, "Maximum distance to lunge");
+        d("lungeswap.air-range", 50.0, 1, Material.SPYGLASS, "Maximum distance to lunge when the bot is mid-air");
+        c("lungeswap.fast-item", "auto", Material.FEATHER, "Item held while waiting: hand = empty slot, or the quickest sword/axe", "auto", "hand", "sword", "axe");
+        i("lungeswap.override-cooldown", 0, 1, Material.CLOCK, "Ticks between lunges (0 = the fast item's own attack cooldown)");
         b("spearmace.enabled", false, Material.TRIDENT, "Spear lunge, then swap to the mace and smash");
         d("spearmace.min-range", 4.0, 0.5, Material.SPYGLASS, "Minimum distance to lunge");
         d("spearmace.max-range", 10.0, 0.5, Material.SPYGLASS, "Maximum distance to lunge");
+        b("spearmace.attribute-swap", true, Material.FEATHER, "Lunge swap for the spear mace: wait with a fast item (bare hand/sword), swap to the spear and lunge in the same tick, then swap to the mace");
+        i("spearmace.swap-delay", 3, 1, Material.CLOCK, "Ticks between the lunge and the swap to the mace");
+        d("spearmace.air-range", 50.0, 1, Material.SPYGLASS, "Maximum distance to lunge when the bot is mid-air");
+        i("spearmace.chain-cooldown", 10, 1, Material.CLOCK, "Ticks between lunges while the target is still far away");
         i("spearmace.cooldown", 80, 10, Material.CLOCK, "Ticks between lunges");
         // ---- elytra mace / dive bomb
         b("elytra.enabled", false, Material.ELYTRA, "Elytra macing: fly up with rockets, then dive bomb the target");
@@ -203,7 +213,7 @@ public final class PvpOptions {
         i("elytra.cooldown", 200, 20, Material.CLOCK, "Ticks between flights");
         b("elytra.swap-chest", true, Material.NETHERITE_CHESTPLATE, "Swap the chestplate for an elytra and back");
         // ---- stun slam
-        b("stunslam.enabled", false, Material.NETHERITE_AXE, "After an axe hit breaks a shield, launch and mace smash straight away");
+        b("stunslam.enabled", false, Material.NETHERITE_AXE, "Stun slam: falling onto a blocking player, the axe disables the shield and the mace smashes in the same tick (on the ground: axe hit, then launch and smash)");
         // ---- grappling
         b("grapple.enabled", false, Material.ENDER_PEARL, "Grapple: pearl to a target that is mid-air, teleport to them, then mace them");
         d("grapple.range", 24.0, 1, Material.SPYGLASS, "Max distance for a grapple pearl");
