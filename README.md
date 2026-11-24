@@ -60,6 +60,23 @@ spearmace, elytra-mace, stunslam, web-lava, pearl-pvp, pearl-catch, grapple. Eac
 | Attribute swap / breach swap | picks the best hotbar item for the charge and the hit |
 | Water clutch | water bucket when falling |
 
+## Linking bots to an item (click to command)
+Hold a non-block item and run `/bot link <bot|all> [player]` (you can link many bots, to different items too;
+`/bot unlink <bot|all>` removes it). Then, as an OP in creative, with that item in your hand:
+- **Left-click** a block (or the air, up to 128 blocks): linked bots travel there using their `travel.mode`
+  (walk, run or sprintjump). Higher targets: they pillar up with blocks from their inventory (`nav.build`).
+  Lower targets or walls: they dig (`nav.dig`). Several bots spread out around the spot so they don't cram.
+- **Right-click** a block: linked bots teleport there (spread out the same way).
+- **Hit an entity**: linked bots attack it even with PvP off (PvP turns on, then off again when it is gone).
+`nav.spread` picks `ring` or `scattered` for groups (`nav.spread-radius` sets spacing); dug blocks drop as items (`nav.drops`).
+**Stealth:** do any of the above while sneaking (`nav.stealth-click`) and the bots sneak, go silent and hide their name tag (`nav.stealth-speed` slows them). If the target spots one of them (it looks their way with a clear line of sight) stealth drops for all of them (`nav.stealth-spot-drop`, `nav.stealth-spot-angle`). When attacking they creep round to the target's back first and only start fighting from there.
+Links are kept in memory only; redo `/bot link` after a restart.
+
+## Tab list, messages, leaving
+- Bots appear in the player list (`tablist.enabled`). This uses raw server packets, so it is best effort; if your Paper build rejects them the log says so once.
+- `messages.bot-join`, `bot-leave`, `bot-kill`, `bot-death` in `config.yml` are broadcast (empty = off).
+- In a bot's menu: "Leave the game when killed" and "Rejoin after: Ns" (or `/bot set <bot> leave true`, `/bot set <bot> rejoin 30`).
+
 ## Death
 The hopper button in a bot's menu (default ON) makes it drop its items on death and empties it; `death.restock: true` refills from its last kit on respawn.
 
