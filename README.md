@@ -52,9 +52,10 @@ spearmace, elytra-mace, stunslam, web-lava, pearl-pvp, pearl-catch, grapple. Eac
 | Punish crit | after you hit the bot and knock it up, it crits back while falling (`pcrit.window`) |
 | Grapple | pearls at a target that is mid-air, teleports to them and maces (`grapple.*`) |
 | Cart | `cart.mode` insta or xbow: rail + TNT minecart on the target |
-| Spearmace | spear lunge, swap to mace and smash (attribute swapping) |
+| Lunge swap | attribute swap: waits holding a fast item (bare hand or sword), then swaps to the Lunge spear and jabs in the same tick so the lunge uses the fast cooldown, and swaps back (`lungeswap.*`, preset `lunge-swap`) |
+| Spearmace | lunge swap into a mace smash: waits with a fast item (bare hand or sword), swaps to the Lunge spear and lunges in the same tick, then swaps to the mace and smashes (`spearmace.attribute-swap`, `spearmace.swap-delay`); works mid-air up to `spearmace.air-range` (50 blocks), chaining lunges every `spearmace.chain-cooldown` ticks while the target is far |
 | Elytra mace | swaps to elytra, rockets up, dives and maces, swaps chestplate back |
-| Stun slam | axe breaks shield, then launches and slams with the mace |
+| Stun slam | falling onto a blocking player: the axe disables the shield and the mace smashes in the same tick (on the ground: axe hit, then launch and slam) |
 | Web combo | web, then lava on top after `lava.combo-delay` ticks; bot places water on webs it is stuck in (`water.web-escape`) or cuts free (`web.cut-ticks`) |
 | Bridge | builds toward the target with blocks when no pearls (`bridge.*`) |
 | Attribute swap / breach swap | picks the best hotbar item for the charge and the hit |
@@ -71,6 +72,14 @@ Hold a non-block item and run `/bot link <bot|all> [player]` (you can link many 
 `nav.spread` picks `ring` or `scattered` for groups (`nav.spread-radius` sets spacing); dug blocks drop as items (`nav.drops`).
 **Stealth:** do any of the above while sneaking (`nav.stealth-click`) and the bots sneak, go silent and hide their name tag (`nav.stealth-speed` slows them). If the target spots one of them (it looks their way with a clear line of sight) stealth drops for all of them (`nav.stealth-spot-drop`, `nav.stealth-spot-angle`). When attacking they creep round to the target's back first and only start fighting from there.
 Links are kept in memory only; redo `/bot link` after a restart.
+
+## Scripting helpers
+- **Look:** `/bot look <bot> <player>` turns once; add `continuous` to keep watching that player; `/bot look <bot> off` stops. Scripts: `look <player> continuous`.
+- **Waypoints:** `/bot waypoint set <name>` (where you stand), `remove`, `list`. Use them anywhere: `/bot goto <bot> <waypoint>`, queue `goto <waypoint>`, `tp <waypoint>`.
+- **Patrol:** `/bot patrol <bot> <wp1> <wp2> ...` walks them round in a loop, pausing at each (`patrol.pause-ticks`); `off` stops it.
+- **Scripts:** write action lists under `scripts:` in `config.yml`, then `/bot script run <bot|all> <name>`. Actions: goto, tp, wait, say, look, select, place, break, use, sneak on|off, swing, target, command (console command, `%bot%` = bot name). Add `/bot loop <bot> on` to repeat.
+- **Greeting:** `/bot greet <bot> Welcome, %player%!` says it when a player walks within `npc.greet-range` (once per `npc.greet-cooldown-seconds` per player).
+- **Chat replies:** `/bot reply <bot> add <keyword> <response>` makes the bot answer when a nearby player's message contains the keyword (`npc.reply-range`, `npc.reply-delay-ticks`).
 
 ## Tab list, messages, leaving
 - Bots appear in the player list (`tablist.enabled`). This uses raw server packets, so it is best effort; if your Paper build rejects them the log says so once.
