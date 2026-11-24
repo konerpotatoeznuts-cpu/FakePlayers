@@ -80,6 +80,8 @@ public class Bot {
     public boolean immovable = false;
     public boolean invulnerable = false;
     public boolean dropItems = true;
+    public boolean leaveOnDeath = false;
+    public int rejoinSeconds = 10;
     public boolean combat = false;
     public boolean followNearestOp = false;
     public String followTarget = null;
@@ -104,6 +106,16 @@ public class Bot {
 
     // runtime
     public Location walkTarget = null;
+    public Location navGoal = null;
+    public int navTicks = 0;
+    public int navStuck = 0;
+    public Location navLast = null;
+    public int navDig = -1;
+    public Location navDigAt = null;
+    public UUID clickTarget = null;
+    public boolean combatBefore = false;
+    public boolean stealth = false;
+    public boolean stealthOn = false;
     public int walkTicks = 0;
     public int waitTicks = 0;
     public int chatCountdown = 0;

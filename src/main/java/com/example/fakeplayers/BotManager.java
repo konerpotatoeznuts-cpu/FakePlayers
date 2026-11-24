@@ -47,6 +47,8 @@ public class BotManager {
     private final File file;
     private final List<Placed> placed = new ArrayList<>();
     private final BotCombat combat;
+    private final BotNav nav;
+    private final BotTab tab;
     private long tickCount;
 
     public BotManager(FakePlayersPlugin plugin) {
@@ -54,6 +56,36 @@ public class BotManager {
         this.botKey = new NamespacedKey(plugin, "bot_name");
         this.file = new File(plugin.getDataFolder(), "bots.yml");
         this.combat = new BotCombat(plugin, this);
+        this.nav = new BotNav(plugin, this);
+        this.tab = new BotTab(plugin);
+    }
+
+    public BotTab tab() {
+        return tab;
+    }
+
+    /** Broadcasts a configurable message. Placeholders: bot, killer, victim. An empty message is skipped. */
+    public void announce(String key, Bot b, String killer, String victim) {
+        String def = switch (key) {
+            case "bot-join" -> "<yellow><bot> joined the game";
+            case "bot-leave" -> "<yellow><bot> left the game";
+            case "bot-kill" -> "<red><victim> was slain by <bot>";
+            case "bot-death" -> "<white><bot> was slain by <killer>";
+            default -> "<white><bot> died";
+        };
+        String fmt = plugin.getConfig().getString("messages." + key, def);
+        if (fmt == null || fmt.isBlank()) {
+            return;
+        }
+        String shown = b.displayName(plugin.getConfig().getString("platform.bedrock-prefix", "."));
+        Bukkit.broadcast(plugin.parse(fmt,
+                net.kyori.adventure.text.minimessage.tag.resolver.Placeholder.unparsed("bot", shown),
+                net.kyori.adventure.text.minimessage.tag.resolver.Placeholder.unparsed("killer", killer == null ? "" : killer),
+                net.kyori.adventure.text.minimessage.tag.resolver.Placeholder.unparsed("victim", victim == null ? "" : victim)));
+    }
+
+    public BotNav nav() {
+        return nav;
     }
 
     public BotCombat combat() {
@@ -108,6 +140,7 @@ public class BotManager {
         b.preset = plugin.getConfig().getString("defaults.preset", "sword");
         bots.put(k(name), b);
         spawnEntity(b, loc);
+        announce("bot-join", b, null, null);
         save();
         return b;
     }
@@ -117,8 +150,11 @@ public class BotManager {
                 e.getPersistentDataContainer().set(botKey, PersistentDataType.STRING, b.name));
         b.entityId = m.getUniqueId();
         b.resetCombat();
+        b.stealth = false;
+        b.stealthOn = false;
         b.equipDirty = true;
         apply(b, m);
+        tab.showAll(b);
     }
 
     public void respawn(Bot b) {
@@ -132,6 +168,10 @@ public class BotManager {
     }
 
     public void respawnLater(Bot b, long delayTicks) {
+        respawnLater(b, delayTicks, false);
+    }
+
+    public void respawnLater(Bot b, long delayTicks, boolean announceJoin) {
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (bots.containsValue(b) && b.home != null && b.home.getWorld() != null) {
                 if (plugin.getConfig().getBoolean("death.restock", true)
@@ -139,6 +179,9 @@ public class BotManager {
                     Kits.apply(plugin, b, b.lastKit);
                 }
                 spawnEntity(b, b.home);
+                if (announceJoin) {
+                    announce("bot-join", b, null, null);
+                }
             }
         }, delayTicks);
     }
@@ -148,6 +191,7 @@ public class BotManager {
         if (m != null) {
             m.remove();
         }
+        tab.hideAll(b);
         bots.remove(k(b.name));
         save();
     }
@@ -224,6 +268,8 @@ public class BotManager {
             y.set(p + "immovable", b.immovable);
             y.set(p + "invulnerable", b.invulnerable);
             y.set(p + "drop-items", b.dropItems);
+            y.set(p + "leave-on-death", b.leaveOnDeath);
+            y.set(p + "rejoin-seconds", b.rejoinSeconds);
             y.set(p + "combat", b.combat);
             y.set(p + "follow-nearest-op", b.followNearestOp);
             y.set(p + "follow-target", b.followTarget);
@@ -292,6 +338,8 @@ public class BotManager {
             b.immovable = s.getBoolean("immovable");
             b.invulnerable = s.getBoolean("invulnerable");
             b.dropItems = s.getBoolean("drop-items", true);
+            b.leaveOnDeath = s.getBoolean("leave-on-death", false);
+            b.rejoinSeconds = s.getInt("rejoin-seconds", 10);
             b.combat = s.getBoolean("combat");
             b.followNearestOp = s.getBoolean("follow-nearest-op");
             b.followTarget = s.getString("follow-target");
@@ -383,8 +431,18 @@ public class BotManager {
             }
         }
 
+        nav.checkAttack(b, m);
+        if (b.clickTarget != null && nav.stealthTick(b, m)) {
+            return;
+        }
+
         // combat has priority
         if (b.combat && combat.tick(b, m)) {
+            return;
+        }
+
+        // travelling to a block the player clicked with a linked item
+        if (nav.tick(b, m)) {
             return;
         }
 
@@ -494,7 +552,19 @@ public class BotManager {
         double nz = dz / h;
         float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
         m.setRotation(yaw, 0f);
-        walk(b, m, nx, nz, b.speed);
+        boolean sprintJump = "sprintjump".equals(PvpOptions.str(plugin, b, "travel.mode"));
+        double speed = b.speed;
+        if (b.stealth) {
+            sprintJump = false;
+            speed *= PvpOptions.dbl(plugin, b, "nav.stealth-speed");
+        } else if (!"walk".equals(PvpOptions.str(plugin, b, "travel.mode"))) {
+            speed *= PvpOptions.dbl(plugin, b, "travel.run-multiplier");
+        }
+        walk(b, m, nx, nz, speed);
+        if (sprintJump && m.isOnGround()) {
+            Vector v = m.getVelocity();
+            m.setVelocity(new Vector(v.getX(), 0.42, v.getZ()));
+        }
         return false;
     }
 

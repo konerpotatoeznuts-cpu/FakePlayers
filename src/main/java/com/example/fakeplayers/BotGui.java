@@ -31,6 +31,8 @@ public class BotGui implements InventoryHolder {
     public static final int SLOT_USE = 25;
     public static final int SLOT_REMOVE = 28;
     public static final int SLOT_DROP = 26;
+    public static final int SLOT_LEAVE = 27;
+    public static final int SLOT_REJOIN = 29;
     public static final int SLOT_CLOSE = 34;
 
     private final Bot bot;
@@ -72,6 +74,9 @@ public class BotGui implements InventoryHolder {
         inventory.setItem(SLOT_SET_HOME, button(Material.RED_BED, "Set respawn point here", NamedTextColor.AQUA));
         inventory.setItem(SLOT_USE, button(Material.NETHER_STAR, "Run 'on-use' integration commands", NamedTextColor.GOLD));
         inventory.setItem(SLOT_DROP, toggle(Material.HOPPER, "Drop items on death", bot.dropItems));
+        inventory.setItem(SLOT_LEAVE, toggle(Material.OAK_DOOR, "Leave the game when killed", bot.leaveOnDeath));
+        inventory.setItem(SLOT_REJOIN, info(Material.CLOCK, "Rejoin after: " + bot.rejoinSeconds + "s",
+                "Click +5s, right-click -5s", "Shift-click changes by 1s", "Used when 'leave when killed' is on"));
         inventory.setItem(SLOT_REMOVE, button(Material.BARRIER, "Remove bot", NamedTextColor.RED));
         inventory.setItem(SLOT_CLOSE, button(Material.OAK_DOOR, "Close", NamedTextColor.GRAY));
     }

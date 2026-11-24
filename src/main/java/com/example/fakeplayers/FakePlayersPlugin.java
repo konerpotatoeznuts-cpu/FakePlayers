@@ -10,6 +10,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 public class FakePlayersPlugin extends JavaPlugin {
 
     private BotManager manager;
+    private final BotLinks links = new BotLinks();
     private final MiniMessage mm = MiniMessage.miniMessage();
 
     @Override
@@ -34,6 +35,9 @@ public class FakePlayersPlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         if (manager != null) {
+            for (Bot b : manager.all()) {
+                manager.tab().hideAll(b);
+            }
             manager.cleanupPlaced();
             manager.save();
         }
@@ -48,6 +52,10 @@ public class FakePlayersPlugin extends JavaPlugin {
     /** Sends a MiniMessage line with the plugin prefix. */
     public void info(CommandSender to, String miniMessage) {
         to.sendMessage(mm.deserialize(getConfig().getString("messages.prefix", "") + miniMessage));
+    }
+
+    public BotLinks links() {
+        return links;
     }
 
     public BotManager manager() {

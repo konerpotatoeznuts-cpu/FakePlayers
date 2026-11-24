@@ -215,6 +215,19 @@ public class BotCombat {
     private LivingEntity resolveTarget(Bot b, Mannequin m) {
         Bot.CombatState st = b.st;
 
+        if (b.clickTarget != null) {
+            Entity ce = Bukkit.getEntity(b.clickTarget);
+            if (ce instanceof LivingEntity cl && !cl.isDead() && cl.getWorld().equals(m.getWorld())) {
+                if (!cl.getUniqueId().equals(st.targetId)) {
+                    st.targetId = cl.getUniqueId();
+                    st.reaction = Math.max(0, intv(b, "aim.reaction-ticks"));
+                }
+                return cl;
+            }
+            st.targetId = null;
+            return null;
+        }
+
         if (b.forcedTarget != null) {
             Player p = Bukkit.getPlayerExact(b.forcedTarget);
             if (p == null || p.isDead() || !p.getWorld().equals(m.getWorld())) {
@@ -378,16 +391,12 @@ public class BotCombat {
         double min = num(b, "move.min-distance");
         double max = num(b, "move.max-distance");
         double f;
-        if (catching) {
-            f = h > 1.0 ? 1.0 : 0.0;
-        } else {
-            f = h > max ? 1.0 : (h < min ? -0.5 : 0.4);
-        }
+        f = h > max ? 1.0 : (h < min ? -0.5 : 0.4);
 
         // light strafing: only up close, only while the attack recharges, and it flips rarely
         String mode = str(b, "move.strafe");
         double s = 0;
-        if (!catching && !"none".equals(mode) && h < 5.0 && st.attackTimer > 3) {
+        if (!"none".equals(mode) && h < 5.0 && st.attackTimer > 3) {
             if (--st.strafeTimer <= 0) {
                 int interval = Math.max(10, intv(b, "move.strafe-interval"));
                 st.strafeTimer = interval + ThreadLocalRandom.current().nextInt(interval);
@@ -1007,7 +1016,7 @@ public class BotCombat {
             int slot = b.find(Material.WATER_BUCKET);
             if (slot >= 0) {
                 Block target = feet.getType() == Material.COBWEB ? feet : eye;
-                if (mgr.placeTemp(b, target, Material.WATER, 30, Material.BUCKET, Material.WATER_BUCKET)) {
+                if (mgr.placeTemp(b, target, Material.WATER, intv(b, "water.pickup-ticks"), Material.BUCKET, Material.WATER_BUCKET)) {
                     Location l = m.getLocation();
                     m.setRotation(l.getYaw(), 90f);
                     m.swingMainHand();
@@ -1249,7 +1258,7 @@ public class BotCombat {
         }
         Material from = on(b, "lava.retrieve") ? Material.BUCKET : null;
         Material to = on(b, "lava.retrieve") ? Material.LAVA_BUCKET : null;
-        if (!mgr.placeTemp(b, tb, Material.LAVA, intv(b, "lava.cleanup-ticks"), from, to)) {
+        if (!mgr.placeTemp(b, tb, Material.LAVA, intv(b, "lava.pickup-ticks"), from, to)) {
             return false;
         }
         if (on(b, "items.consume")) {
@@ -1339,7 +1348,7 @@ public class BotCombat {
         if (!replaceable(above)) {
             return;
         }
-        if (mgr.placeTemp(b, above, Material.WATER, 40, Material.BUCKET, Material.WATER_BUCKET)) {
+        if (mgr.placeTemp(b, above, Material.WATER, intv(b, "water.pickup-ticks"), Material.BUCKET, Material.WATER_BUCKET)) {
             Location l = m.getLocation();
             m.setRotation(l.getYaw(), 90f);
             m.swingMainHand();

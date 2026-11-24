@@ -13,9 +13,17 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.FluidCollisionMode;
+import org.bukkit.block.Block;
+import org.bukkit.event.block.Action;
+import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.util.RayTraceResult;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.entity.EntityResurrectEvent;
 import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.inventory.InventoryAction;
@@ -63,6 +71,97 @@ public class BotListener implements Listener {
         }
         e.setCancelled(true);
         p.openInventory(new BotGui(bot).getInventory());
+    }
+
+    @EventHandler
+    public void onJoin(PlayerJoinEvent e) {
+        Player p = e.getPlayer();
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (p.isOnline()) {
+                mgr().tab().sendAllTo(p);
+            }
+        }, 20L);
+    }
+
+    // ------------------------------------------------------------ linked items (/bot link)
+
+    private boolean linkUser(Player p) {
+        return p.isOp() && p.getGameMode() == GameMode.CREATIVE;
+    }
+
+    private List<Bot> linkedBots(Player p) {
+        return plugin.links().botsFor(p, p.getInventory().getItemInMainHand(), mgr());
+    }
+
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onLinkClick(PlayerInteractEvent e) {
+        if (e.getHand() != EquipmentSlot.HAND) {
+            return;
+        }
+        Player p = e.getPlayer();
+        if (!linkUser(p)) {
+            return;
+        }
+        List<Bot> bots = linkedBots(p);
+        if (bots.isEmpty()) {
+            return;
+        }
+        Action a = e.getAction();
+        boolean left = a == Action.LEFT_CLICK_AIR || a == Action.LEFT_CLICK_BLOCK;
+        boolean right = a == Action.RIGHT_CLICK_AIR || a == Action.RIGHT_CLICK_BLOCK;
+        if (!left && !right) {
+            return;
+        }
+        Location eye = p.getEyeLocation();
+        if (left) {
+            RayTraceResult er = p.getWorld().rayTraceEntities(eye, eye.getDirection(), 5.0,
+                    en -> en != p && en instanceof LivingEntity);
+            if (er != null && er.getHitEntity() != null) {
+                return; // that is an attack, handled below
+            }
+        }
+        Location target;
+        Block cb = e.getClickedBlock();
+        if (cb != null) {
+            target = cb.getLocation().add(0.5, 1, 0.5);
+        } else {
+            RayTraceResult r = p.getWorld().rayTraceBlocks(eye, eye.getDirection(), 128, FluidCollisionMode.NEVER, true);
+            e.setCancelled(true);
+            if (r == null || r.getHitBlock() == null) {
+                return;
+            }
+            target = r.getHitBlock().getLocation().add(0.5, 1, 0.5);
+        }
+        e.setCancelled(true);
+        if (left) {
+            mgr().nav().sendTo(bots, target, p.isSneaking());
+        } else {
+            mgr().nav().teleportTo(bots, target);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onLinkAttack(EntityDamageByEntityEvent e) {
+        if (!(e.getDamager() instanceof Player p) || !linkUser(p) || !(e.getEntity() instanceof LivingEntity victim)) {
+            return;
+        }
+        List<Bot> bots = new java.util.ArrayList<>(linkedBots(p));
+        if (bots.isEmpty()) {
+            return;
+        }
+        e.setCancelled(true);
+        bots.removeIf(b -> victim.getUniqueId().equals(b.entityId));
+        if (!bots.isEmpty()) {
+            mgr().nav().attack(bots, victim, p.isSneaking());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onLinkBreak(BlockBreakEvent e) {
+        Player p = e.getPlayer();
+        if (linkUser(p) && !linkedBots(p).isEmpty()) {
+            e.setCancelled(true);
+        }
     }
 
     // ------------------------------------------------------------ damage, shields, totems
@@ -194,6 +293,23 @@ public class BotListener implements Listener {
             }
             bot.resetCombat();
             bot.equipDirty = true;
+            Player k2 = e.getEntity().getKiller();
+            if (k2 != null) {
+                mgr().announce("bot-death", bot, k2.getName(), null);
+            } else {
+                mgr().announce("bot-death-other", bot, null, null);
+            }
+            if (bot.leaveOnDeath) {
+                mgr().announce("bot-leave", bot, null, null);
+                mgr().tab().hideAll(bot);
+                if (bot.rejoinSeconds >= 0) {
+                    mgr().respawnLater(bot, bot.rejoinSeconds * 20L, true);
+                } else {
+                    mgr().remove(bot);
+                }
+                mgr().save();
+                return;
+            }
             int delay = plugin.getConfig().getInt("death.respawn-delay-ticks", 100);
             if (delay >= 0) {
                 mgr().respawnLater(bot, delay);
@@ -211,6 +327,10 @@ public class BotListener implements Listener {
             if (killerBot != null) {
                 mgr().runCommands("integration.bot-kills-player",
                         mgr().placeholders(killerBot, (Mannequin) ev.getDamager(), "victim", victim.getName()));
+                if (e instanceof PlayerDeathEvent pde) {
+                    pde.deathMessage(null);
+                }
+                mgr().announce("bot-kill", killerBot, null, victim.getName());
             }
         }
     }
@@ -250,6 +370,11 @@ public class BotListener implements Listener {
         switch (e.getSlot()) {
             case BotGui.SLOT_INVULNERABLE -> b.invulnerable = !b.invulnerable;
             case BotGui.SLOT_DROP -> b.dropItems = !b.dropItems;
+            case BotGui.SLOT_LEAVE -> b.leaveOnDeath = !b.leaveOnDeath;
+            case BotGui.SLOT_REJOIN -> {
+                int step = e.isShiftClick() ? 1 : 5;
+                b.rejoinSeconds = Math.max(0, b.rejoinSeconds + (e.isRightClick() ? -step : step));
+            }
             case BotGui.SLOT_IMMOVABLE -> {
                 b.immovable = !b.immovable;
                 if (m != null) {

@@ -60,6 +60,17 @@ public final class PvpOptions {
         // ---- movement
         d("move.speed", 0.23, 0.01, Material.LEATHER_BOOTS, "Walk speed (blocks per tick)");
         d("move.sprint-speed", 0.28, 0.01, Material.GOLDEN_BOOTS, "Sprint speed (blocks per tick)");
+        c("travel.mode", "walk", Material.LEATHER_BOOTS, "How the bot travels (goto, follow, linked clicks)", "walk", "run", "sprintjump");
+        d("travel.run-multiplier", 1.3, 0.05, Material.SUGAR, "Speed multiplier for run and sprintjump");
+        b("nav.build", true, Material.COBBLESTONE, "Linked travel: build up with blocks to reach higher targets");
+        c("nav.spread", "ring", Material.HEAVY_CORE, "How several bots arrange around a clicked spot", "ring", "scattered");
+        d("nav.spread-radius", 1.8, 0.2, Material.LEAD, "Spacing of the ring, or size of the scatter area");
+        b("nav.drops", true, Material.COBBLESTONE, "Blocks dug by linked travel drop as items");
+        b("nav.stealth-click", true, Material.LEATHER_BOOTS, "Sneaking while using the link item puts bots in stealth (sneak, silent, no name tag; attacks come from behind)");
+        d("nav.stealth-speed", 0.35, 0.05, Material.SOUL_SAND, "Speed multiplier while in stealth");
+        b("nav.stealth-spot-drop", true, Material.ENDER_EYE, "Stealth ends for all bots when the target looks at one of them");
+        d("nav.stealth-spot-angle", 55.0, 5, Material.SPYGLASS, "How far from the target's crosshair a bot can be and still be spotted (degrees)");
+        b("nav.dig", true, Material.IRON_PICKAXE, "Linked travel: dig down or through walls to reach targets");
         c("move.strafe", "circle", Material.COMPASS, "Strafing style", "none", "circle", "random");
         i("move.strafe-interval", 45, 5, Material.REPEATER, "Ticks between strafe direction decisions");
         d("move.min-distance", 2.0, 0.25, Material.IRON_BARS, "Back off when closer than this");
@@ -119,7 +130,8 @@ public final class PvpOptions {
         d("lava.range", 4.0, 0.5, Material.LAVA_BUCKET, "Max distance to place lava");
         i("lava.cooldown", 100, 10, Material.CLOCK, "Ticks between lava placements");
         b("lava.require-web", true, Material.COBWEB, "Only use lava on webbed targets");
-        i("lava.cleanup-ticks", 60, 10, Material.BUCKET, "Pick the lava back up after this many ticks (0 = never)");
+        i("lava.pickup-ticks", 6, 1, Material.BUCKET, "Ticks before the lava is picked back up (0 = never)");
+        i("water.pickup-ticks", 5, 1, Material.WATER_BUCKET, "Ticks before placed water is picked back up (0 = never)");
         b("lava.retrieve", true, Material.BUCKET, "Get the lava bucket back after cleanup");
         // ---- drain
         b("drain.enabled", false, Material.BUCKET, "Drain water the target places to escape webs");

@@ -20,10 +20,10 @@ public class BotCommand implements CommandExecutor, TabCompleter {
     private static final List<String> SUBS = List.of(
             "help", "spawn", "remove", "list", "config", "pvp", "inv", "platform", "preset", "kit", "target",
             "select", "tp", "goto", "follow", "look", "say", "equip", "place", "break", "attack", "queue",
-            "loop", "set", "addline", "clearlines", "use", "respawn", "reload");
+            "loop", "set", "addline", "clearlines", "use", "respawn", "reload", "link", "unlink");
 
     private static final List<String> SET_KEYS = List.of(
-            "skin", "invulnerable", "immovable", "followop", "autochat", "chatinterval", "speed");
+            "skin", "invulnerable", "immovable", "followop", "autochat", "chatinterval", "speed", "leave", "rejoin");
 
     private static final List<String> PVP_SUBS = List.of("on", "off", "gui", "set", "get", "reset", "list");
 
@@ -105,6 +105,58 @@ public class BotCommand implements CommandExecutor, TabCompleter {
                 }
                 mgr().remove(b);
                 plugin.msg(sender, "removed", "name", b.name);
+                return true;
+            }
+            case "link" -> {
+                if (args.length < 2) {
+                    plugin.msg(sender, "bad-args", "usage", "/bot link <bot|all> [player]");
+                    return true;
+                }
+                Player who = args.length > 2 ? Bukkit.getPlayerExact(args[2]) : (sender instanceof Player sp ? sp : null);
+                if (who == null) {
+                    plugin.info(sender, "<red>Player not found. Use /bot link <bot|all> <player>.");
+                    return true;
+                }
+                List<Bot> targets = new ArrayList<>();
+                if (args[1].equalsIgnoreCase("all")) {
+                    targets.addAll(mgr().all());
+                } else {
+                    Bot lb = mgr().get(args[1]);
+                    if (lb == null) {
+                        plugin.msg(sender, "no-bot", "name", args[1]);
+                        return true;
+                    }
+                    targets.add(lb);
+                }
+                int n = 0;
+                for (Bot lb : targets) {
+                    String err = plugin.links().link(who, lb);
+                    if (err != null) {
+                        plugin.info(sender, "<red>" + err);
+                        return true;
+                    }
+                    n++;
+                }
+                plugin.info(sender, "<green>Linked " + n + " bot(s) to " + who.getName()
+                        + "'s held item. Creative + OP: left-click = go, right-click = teleport, hit an entity = attack.");
+                return true;
+            }
+            case "unlink" -> {
+                if (args.length < 2) {
+                    plugin.msg(sender, "bad-args", "usage", "/bot unlink <bot|all> [player]");
+                    return true;
+                }
+                Player who = args.length > 2 ? Bukkit.getPlayerExact(args[2]) : (sender instanceof Player sp ? sp : null);
+                if (who == null) {
+                    plugin.info(sender, "<red>Player not found.");
+                    return true;
+                }
+                Bot ub = args[1].equalsIgnoreCase("all") ? null : mgr().get(args[1]);
+                if (ub == null && !args[1].equalsIgnoreCase("all")) {
+                    plugin.msg(sender, "no-bot", "name", args[1]);
+                    return true;
+                }
+                plugin.info(sender, "<green>Unlinked " + plugin.links().unlink(who, ub) + " link(s).");
                 return true;
             }
             default -> {
@@ -396,6 +448,8 @@ public class BotCommand implements CommandExecutor, TabCompleter {
                 case "autochat" -> b.autoChat = Boolean.parseBoolean(val);
                 case "chatinterval" -> b.chatIntervalSeconds = Math.max(1, Integer.parseInt(val));
                 case "speed" -> b.speed = Double.parseDouble(val);
+                case "leave" -> b.leaveOnDeath = Boolean.parseBoolean(val);
+                case "rejoin" -> b.rejoinSeconds = Math.max(0, Integer.parseInt(val));
                 default -> {
                     plugin.msg(sender, "bad-args", "usage", "/bot set <bot> <" + String.join("|", SET_KEYS) + "> <value>");
                     return true;
@@ -487,6 +541,7 @@ public class BotCommand implements CommandExecutor, TabCompleter {
                 "/bot select <bot> <1-9> - choose the held hotbar slot",
                 "/bot tp|goto|follow|look|say|equip|place|break|use ...",
                 "/bot queue <bot> <action...> | clear, /bot loop <bot> <on|off>",
+                "/bot link <bot|all> [player] - hold a non-block item first; /bot unlink <bot|all> [player]",
                 "/bot set <bot> <key> <value>, /bot addline|clearlines <bot> [text], /bot reload"
         };
         for (String l : lines) {
@@ -506,7 +561,7 @@ public class BotCommand implements CommandExecutor, TabCompleter {
                 for (Bot b : mgr().all()) {
                     names.add(b.name);
                 }
-                if (sub.equals("remove")) {
+                if (sub.equals("remove") || sub.equals("link") || sub.equals("unlink")) {
                     names.add("all");
                 }
                 filter(names, args[1], out);
@@ -514,6 +569,13 @@ public class BotCommand implements CommandExecutor, TabCompleter {
         } else if (args.length == 3) {
             String sub = args[0].toLowerCase(Locale.ROOT);
             switch (sub) {
+                case "link", "unlink" -> {
+                    for (Player op : Bukkit.getOnlinePlayers()) {
+                        if (op.getName().toLowerCase(Locale.ROOT).startsWith(args[2].toLowerCase(Locale.ROOT))) {
+                            out.add(op.getName());
+                        }
+                    }
+                }
                 case "set" -> filter(SET_KEYS, args[2], out);
                 case "pvp" -> filter(PVP_SUBS, args[2], out);
                 case "platform" -> filter(List.of("java", "bedrock"), args[2], out);
