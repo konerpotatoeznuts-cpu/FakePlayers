@@ -58,6 +58,9 @@ pvp:
       cart.mode: xbow
       cart.range: 10.0
       shield.enabled: false
+    lunge-swap:
+      lungeswap.enabled: true
+      shield.enabled: false
     spearmace:
       spearmace.enabled: true
       mace.enabled: true
@@ -193,6 +196,15 @@ pvp:
       - RAIL 32
       - TNT_MINECART 16
       - ARROW 32
+      - GOLDEN_APPLE 16
+      - TOTEM_OF_UNDYING 3
+    lunge-swap:
+      - NETHERITE_HELMET protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS protection=4 unbreaking=3
+      - NETHERITE_BOOTS protection=4 unbreaking=3
+      - NETHERITE_SPEAR lunge=3 unbreaking=3
+      - NETHERITE_SWORD sharpness=5 unbreaking=3
       - GOLDEN_APPLE 16
       - TOTEM_OF_UNDYING 3
     spearmace:
@@ -412,6 +424,27 @@ integration:
   on-bot-hit: []
   # Run by "/bot use <bot>".
   on-use: []
+
+# NPC behaviour: /bot greet, /bot reply, /bot patrol
+npc:
+  greet-range: 6.0
+  greet-cooldown-seconds: 300
+  reply-range: 24.0
+  reply-delay-ticks: 30
+patrol:
+  pause-ticks: 60
+
+# Scripts: /bot script run <bot|all> <name>. Actions: goto <x y z|waypoint>, tp <waypoint>, wait <ticks>,
+# say <text>, look <yaw pitch|player>, select <1-9>, place, break, use, sneak on|off, swing,
+# target <player|off>, command <console command with %bot%>
+scripts:
+  example:
+    - say Hello everyone!
+    - wait 40
+    - swing
+    - sneak on
+    - wait 40
+    - sneak off
 
 tablist:
   # Show bots in the player list (best effort, uses server packets).
