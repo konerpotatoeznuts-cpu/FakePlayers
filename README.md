@@ -21,7 +21,7 @@ build your server runs (`/version` shows it). If it fails on code, send me the e
   picks which hotbar slot the bot holds (`/bot select <bot> <1-9>` too).
 - `/bot platform <bot> <java|bedrock>`
   - Java: attacks follow the weapon's cooldown (sword ~0.6s, axe ~1.1s, mace ~1.7s).
-  - Bedrock: click-spam at `hit.cps`, no cooldown, and the name gets `platform.bedrock-prefix` (default ".").
+  - Bedrock: click-spam at `hit.cps`, no cooldown, ignores the target's damage immunity (`bedrock.ignore-immunity`), and the name gets `platform.bedrock-prefix` (default ".").
   - Other plugins can read the entity's `fakeplayers:bot_platform` data or `fakeplayers_platform` metadata.
 
 ## PvP
@@ -73,6 +73,13 @@ Hold a non-block item and run `/bot link <bot|all> [player]` (you can link many 
 **Stealth:** do any of the above while sneaking (`nav.stealth-click`) and the bots sneak, go silent and hide their name tag (`nav.stealth-speed` slows them). If the target spots one of them (it looks their way with a clear line of sight) stealth drops for all of them (`nav.stealth-spot-drop`, `nav.stealth-spot-angle`). When attacking they creep round to the target's back first and only start fighting from there.
 Links are kept in memory only; redo `/bot link` after a restart.
 
+## Potions, invisibility, pickups
+- **Pre-fight potting:** before closing in, the bot drinks the effects in `buff.prefight-effects` (default speed, strength, fire resistance) while the enemy is still more than `buff.prefight-min-distance` away.
+- **Turtle Master:** at or below `turtle.health` it drinks a Turtle Master (or splashes it at its feet), stands its ground and heals up to `turtle.heal-to` with apples or healing potions (no retreating or escape pearls meanwhile), then fights on.
+- **Invisibility:** it drinks an invisibility potion when the enemy is within `invis.range`, then takes its armor off into the inventory piece by piece (throwing out the least useful stack if the inventory is full). Armor goes back on when the effect is almost gone or the fight ends.
+- **Pickups:** bots pick up dropped items in range when they have room (`pickup.range`) and walk to nearby items when idle (`pickup.seek`).
+- Preset and kit `potter` has all of it set up.
+
 ## Scripting helpers
 - **Look:** `/bot look <bot> <player>` turns once; add `continuous` to keep watching that player; `/bot look <bot> off` stops. Scripts: `look <player> continuous`.
 - **Waypoints:** `/bot waypoint set <name>` (where you stand), `remove`, `list`. Use them anywhere: `/bot goto <bot> <waypoint>`, queue `goto <waypoint>`, `tp <waypoint>`.
@@ -99,8 +106,7 @@ attribute modifiers on an item are used for its melee damage.
 - Pearl catch and grapple are emulated: the bot's pearl is intercepted and the bot is teleported (with 5 pearl damage, `pearl.damage`). Pearl catch ends high above the landing spot (`pcatch.height`) and grapple gives the bot a fall bonus so the mace smashes.
 - Bots are mannequins, not real players: no tab-list entry, and other plugins do not see them as
   `Player`, so kill progression works through the console hooks above.
-- Bots have no pathfinding. They walk straight toward targets and hop over one-block steps, so
-  mazes and caves will stop them.
+- Pathfinding: for `/bot goto`, queue/patrol goto, follow and linked clicks, bots find a walkable route with A* (around walls, up one-block steps, down short drops, avoiding lava, fire, cobwebs, cactus). They only dig or build when no walkable route exists (`nav.pathfinding`, `nav.path-nodes`, `nav.max-drop`). Combat movement is still direct. They can't open doors, climb ladders or swim across deep water.
 - Crystal and anchor damage is an estimate (ignores line of sight and protection enchantments).
 - Breach does not reduce armor, and shields are emulated (the raised animation is tried via `shield.visual`).
 - Bots place and break blocks directly and do not ask WorldGuard. Use `build.blocked-materials`.
