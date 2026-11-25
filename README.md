@@ -111,3 +111,30 @@ attribute modifiers on an item are used for its melee damage.
 - Breach does not reduce armor, and shields are emulated (the raised animation is tried via `shield.visual`).
 - Bots place and break blocks directly and do not ask WorldGuard. Use `build.blocked-materials`.
 - Written against Paper 26.2 docs but not yet compiled or tested in-game.
+
+## Kits, names/enchants, shield banner and armor trims
+
+- `kits.yml` (created automatically, wins over `pvp.kits` in config.yml) holds the wiki "PvP kits type" kits:
+  `sword, axe, smp, smp-netherite, crystal, pot, pot-netherite, uhc, cart, cart-netherite, mace, elytra-mace, spear, vanilla`.
+  Your older kits (anchor, trap, web-lava, lunge-swap, ...) still work. `/bot kit <bot> <name>` (tab-complete) or the bot menu kit button
+  (click = preset's kit, right-click = cycle all kits).
+- Kit line: `MATERIAL [amount] [name="<red>Text"] [lore="a|b"] [enchant=level ...] [potion=type] [unbreakable]`.
+  Short enchant names work (`prot, blast, sweeping, ff, depth, aqua, resp, qc, kb, fire, wind`). The wiki gives no quantities/names/hotbar order, so those are my choices - edit kits.yml freely.
+- Trims are not part of kits. Shield banner: `/bot shield <bot> gui|base <color>|add <pattern> <color>|undo|clear`. Armor trims: `/bot trim <bot> <helmet|chestplate|leggings|boots|all> <pattern> <material>|clear|gui`.
+  Both are also in the bot menu (banner / chestplate buttons), saved per bot, and re-applied after every kit, respawn restock and inventory edit.
+
+## Fixes round (air speed, lunge swap, web-lava, placement, eating, elytra) + custom weapons bridge
+
+- Air movement now keeps momentum with small player-like steering (`move.air-speed`), spear lunge is gentler.
+- Lunge swapping is only used for mid-air travel after a wind charge / pearl catch (`lungeswap.air-only`), and as the approach in spearmace / stun slam.
+- Web-lava: sprint hit, web on the floor behind the target, then lava ON TOP of the web (`web.technique`: ground-lava, head-box, plain; `web.after-hit`).
+- Bots only place blocks/fluids against an existing block (never in thin air).
+- Food/potions in the main inventory are moved to the hotbar before eating, and moved back after.
+- Elytra mace: elytra up, chestplate to stop and aim (`elytra.aim-ticks`), elytra to glide at the target, chestplate + mace to dive (`elytra.dive-range`).
+- `weapons.yml`: per-weapon matching (name / item type / PDC key), preference, on-hit and on-use (ability) console commands with placeholders.
+
+## CustomWeapons support
+Bots recognise real CustomWeapons items (tag `customweapons:weapon`). Abilities cast BY a bot are built-in versions
+(Durandal beam + lifesteal, Eldritch Mace proc + dash, Halberd stun + spin, Prismatic flash, Warden Whip, Excalibur uppercut + dash)
+using the numbers from the CustomWeapons config; toggle with `native-abilities` in weapons.yml. Abilities cast ON bots work through the
+normal damage events (bots count as valid living targets). Not covered for bots: guns, rocket launcher, Cryo Tempest, Great Axe throw, Sea Truncheon, Sonic shoes, Tamer.
