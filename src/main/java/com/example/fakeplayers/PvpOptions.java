@@ -70,6 +70,9 @@ public final class PvpOptions {
         d("nav.stealth-speed", 0.35, 0.05, Material.SOUL_SAND, "Speed multiplier while in stealth");
         b("nav.stealth-spot-drop", true, Material.ENDER_EYE, "Stealth ends for all bots when the target looks at one of them");
         d("nav.stealth-spot-angle", 55.0, 5, Material.SPYGLASS, "How far from the target's crosshair a bot can be and still be spotted (degrees)");
+        b("nav.pathfinding", true, Material.MAP, "Find a walkable route (around walls, up steps, down ledges) before building or digging");
+        i("nav.path-nodes", 5000, 500, Material.COMPASS, "How many blocks the route search may look at");
+        i("nav.max-drop", 3, 1, Material.FEATHER, "Longest drop the bot will walk off while pathfinding");
         b("nav.dig", true, Material.IRON_PICKAXE, "Linked travel: dig down or through walls to reach targets");
         c("move.strafe", "circle", Material.COMPASS, "Strafing style", "none", "circle", "random");
         i("move.strafe-interval", 45, 5, Material.REPEATER, "Ticks between strafe direction decisions");
@@ -82,6 +85,7 @@ public final class PvpOptions {
         // ---- hit
         d("hit.reach", 3.0, 0.1, Material.STICK, "Melee reach in blocks");
         d("hit.cps", 10, 1, Material.REDSTONE_TORCH, "Clicks per second (Bedrock bots)");
+        b("bedrock.ignore-immunity", true, Material.IRON_SWORD, "Bedrock bots ignore the target's damage immunity (hit cooldown), like real Bedrock click-spam");
         d("hit.miss-chance", 0.05, 0.05, Material.COBBLESTONE, "Chance an attack swings and misses");
         b("hit.crit", true, Material.GOLDEN_SWORD, "Allow critical hits while falling");
         d("hit.knockback-extra", 0.0, 0.1, Material.PISTON, "Extra knockback added to every hit");
@@ -115,6 +119,24 @@ public final class PvpOptions {
         d("heal.potion-health", 10, 1, Material.POTION, "Use healing potions at or below this health");
         i("heal.eat-ticks", 32, 2, Material.CLOCK, "Ticks it takes to eat or drink");
         b("heal.splash", true, Material.SPLASH_POTION, "Throw splash healing potions at own feet");
+        b("buff.prefight", true, Material.BREWING_STAND, "Pot up (see buff.prefight-effects) before closing in on an enemy");
+        d("buff.prefight-min-distance", 10.0, 1, Material.SPYGLASS, "Skip pre-fight potions when the enemy is already closer than this");
+        t("buff.prefight-effects", "speed,strength,fire_resistance", Material.POTION, "Comma list: speed, strength, fire_resistance, resistance, regeneration, jump_boost, night_vision, water_breathing, slow_falling");
+        b("turtle.enabled", true, Material.TURTLE_HELMET, "Low on health: drink a Turtle Master potion, heal a bit while it protects, then fight on");
+        d("turtle.health", 8.0, 1, Material.REDSTONE, "Use the Turtle Master at or below this health");
+        d("turtle.heal-to", 16.0, 1, Material.GOLDEN_APPLE, "Keep healing during the turtle until this health");
+        i("turtle.cooldown", 600, 20, Material.CLOCK, "Ticks between Turtle Master uses");
+        b("invis.enabled", true, Material.GLASS_BOTTLE, "Drink invisibility before a fight and take the armor off");
+        d("invis.range", 40.0, 1, Material.SPYGLASS, "Drink invisibility when the enemy is within this distance");
+        d("invis.min-distance", 8.0, 1, Material.SPYGLASS, "...but not when the enemy is closer than this");
+        b("invis.strip-armor", true, Material.LEATHER_CHESTPLATE, "Put the armor into the inventory while invisible (throws out the least useful items if it is full)");
+        i("invis.strip-delay", 6, 1, Material.CLOCK, "Ticks per armor piece when taking it off or putting it on");
+        b("invis.rewear", true, Material.IRON_CHESTPLATE, "Put the armor back on when invisibility runs low or the fight ends");
+        i("invis.rewear-ticks", 60, 10, Material.CLOCK, "Put armor back on when invisibility has this many ticks left");
+        b("pickup.enabled", true, Material.HOPPER, "Pick up dropped items when there is room");
+        d("pickup.range", 1.6, 0.2, Material.LEAD, "Distance at which the bot picks an item up");
+        b("pickup.seek", true, Material.COMPASS, "Walk to nearby dropped items when idle");
+        d("pickup.seek-range", 8.0, 1, Material.SPYGLASS, "How far away the bot looks for items to collect");
         b("buff.enabled", true, Material.BREWING_STAND, "Drink speed, strength and similar potions when fighting");
         i("buff.cooldown", 200, 20, Material.CLOCK, "Ticks between buff checks");
         b("water.mlg", true, Material.WATER_BUCKET, "Water bucket clutch when falling");

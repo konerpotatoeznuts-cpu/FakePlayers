@@ -124,8 +124,12 @@ public class BotCombat {
             st.shielding = false;
             setShieldVisual(b, m, false);
             st.drawTicks = 0;
+            st.turtleTicks = 0;
+            st.prefightDone = false;
+            st.prefighting = false;
             endFlight(b, m);
-            return st.eatTicks > 0;
+            boolean busy = on(b, "invis.rewear") && rewear(b);
+            return st.eatTicks > 0 || busy;
         }
 
         double dist = reachDist(m, t);
@@ -140,6 +144,11 @@ public class BotCombat {
         updateShield(b, m, dist);
 
         if (st.eatTicks > 0) {
+            if (st.turtleTicks > 0 || st.prefighting) {
+                // standing ground: turtle healing or potting up before the fight
+                aimAt(b, m, aimPoint(t));
+                return true;
+            }
             if (center < 7.0) {
                 backOff(b, m, t);
             } else {
@@ -149,7 +158,13 @@ public class BotCombat {
             return true;
         }
 
+        if (turtle(b, m, t, center)) {
+            return true;
+        }
         if (heal(b, m)) {
+            return true;
+        }
+        if (prefight(b, m, center) || invis(b, m, center)) {
             return true;
         }
         buff(b, m, center);
@@ -408,7 +423,7 @@ public class BotCombat {
             s = st.strafeDir * num(b, "move.strafe-amount");
         }
 
-        boolean retreat = on(b, "move.retreat") && m.getHealth() <= num(b, "move.retreat-health");
+        boolean retreat = on(b, "move.retreat") && m.getHealth() <= num(b, "move.retreat-health") && st.turtleTicks <= 0;
         if (retreat) {
             f = -1.0;
             s *= 0.5;
@@ -822,6 +837,10 @@ public class BotCombat {
         }
 
         m.swingMainHand();
+        if (b.platform == Bot.Platform.BEDROCK && on(b, "bedrock.ignore-immunity")) {
+            // Bedrock has no hit immunity: every click deals full damage, even right after a previous hit
+            t.setNoDamageTicks(0);
+        }
         t.damage(dmg, m);
         hitEffects(t, w, crit, smash, fall);
 
@@ -1080,12 +1099,304 @@ public class BotCombat {
         }
     }
 
+    // ------------------------------------------------------------ turtle master, pre-fight potions, invisibility
+
+    private static boolean isTurtle(ItemStack i) {
+        if (!Bot.empty(i) && i.getItemMeta() instanceof PotionMeta pm) {
+            PotionType base = pm.getBasePotionType();
+            return base != null && base.name().contains("TURTLE_MASTER");
+        }
+        return false;
+    }
+
+    private static boolean isInvisPotion(ItemStack i) {
+        for (PotionEffect e : effectsOf(i)) {
+            if (e.getType() == PotionEffectType.INVISIBILITY) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static PotionEffectType effectByName(String n) {
+        return switch (n.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "speed" -> PotionEffectType.SPEED;
+            case "strength" -> PotionEffectType.STRENGTH;
+            case "fire_resistance", "fire" -> PotionEffectType.FIRE_RESISTANCE;
+            case "resistance" -> PotionEffectType.RESISTANCE;
+            case "regeneration" -> PotionEffectType.REGENERATION;
+            case "jump_boost" -> PotionEffectType.JUMP_BOOST;
+            case "invisibility" -> PotionEffectType.INVISIBILITY;
+            case "night_vision" -> PotionEffectType.NIGHT_VISION;
+            case "water_breathing" -> PotionEffectType.WATER_BREATHING;
+            case "slow_falling" -> PotionEffectType.SLOW_FALLING;
+            default -> null;
+        };
+    }
+
+    /** Low on health: drink a Turtle Master, heal a bit while it protects, then go back to fighting. */
+    private boolean turtle(Bot b, Mannequin m, LivingEntity t, double center) {
+        Bot.CombatState st = b.st;
+        if (!on(b, "turtle.enabled")) {
+            st.turtleTicks = 0;
+            return false;
+        }
+        double hp = m.getHealth();
+        if (st.turtleTicks > 0) {
+            st.turtleTicks--;
+            if (hp < num(b, "turtle.heal-to") && healNow(b, m)) {
+                return true;
+            }
+            if (hp >= num(b, "turtle.heal-to") || !hasHealItem(b)) {
+                st.turtleTicks = 0;
+            }
+            return false;
+        }
+        if (hp > num(b, "turtle.health") || !st.ready("turtle")) {
+            return false;
+        }
+        int s = b.findIf(i -> i.getType() == Material.POTION && isTurtle(i), false);
+        if (s >= 0) {
+            st.setCd("turtle", intv(b, "turtle.cooldown"));
+            st.turtleTicks = 400;
+            startEat(b, s, "potion");
+            return true;
+        }
+        s = b.findIf(i -> i.getType() == Material.SPLASH_POTION && isTurtle(i), false);
+        if (s >= 0) {
+            st.setCd("turtle", intv(b, "turtle.cooldown"));
+            st.turtleTicks = 400;
+            throwSplashAtFeet(b, m, s);
+            return true;
+        }
+        return false;
+    }
+
+    /** Heals right now with the best thing in the inventory, whatever the thresholds. */
+    private boolean healNow(Bot b, Mannequin m) {
+        int s = b.find(Material.ENCHANTED_GOLDEN_APPLE);
+        if (s >= 0) {
+            startEat(b, s, "egap");
+            return true;
+        }
+        s = b.find(Material.GOLDEN_APPLE);
+        if (s >= 0) {
+            startEat(b, s, "gap");
+            return true;
+        }
+        if (b.st.ready("splash")) {
+            s = b.findIf(i -> i.getType() == Material.SPLASH_POTION && isHealingPotion(i), false);
+            if (s >= 0) {
+                throwSplashAtFeet(b, m, s);
+                return true;
+            }
+        }
+        s = b.findIf(i -> i.getType() == Material.POTION && isHealingPotion(i), false);
+        if (s >= 0) {
+            startEat(b, s, "potion");
+            return true;
+        }
+        return false;
+    }
+
+    /** Pot up (speed, strength, fire resistance...) while the enemy is still far away. */
+    private boolean prefight(Bot b, Mannequin m, double center) {
+        Bot.CombatState st = b.st;
+        st.prefighting = false;
+        if (!on(b, "buff.prefight") || st.prefightDone) {
+            return false;
+        }
+        if (center < num(b, "buff.prefight-min-distance")) {
+            st.prefightDone = true;
+            return false;
+        }
+        List<PotionEffectType> want = new ArrayList<>();
+        for (String n : str(b, "buff.prefight-effects").split(",")) {
+            PotionEffectType pt = effectByName(n);
+            if (pt != null && !m.hasPotionEffect(pt)) {
+                want.add(pt);
+            }
+        }
+        int s = b.findIf(i -> {
+            if (i.getType() != Material.POTION || isHealingPotion(i) || isTurtle(i)) {
+                return false;
+            }
+            for (PotionEffect e : effectsOf(i)) {
+                if (want.contains(e.getType())) {
+                    return true;
+                }
+            }
+            return false;
+        }, false);
+        if (s < 0) {
+            st.prefightDone = true;
+            return false;
+        }
+        st.prefighting = true;
+        startEat(b, s, "potion");
+        return true;
+    }
+
+    /** Drinks invisibility, then takes the armor off (it would show). Armor goes back on when it runs low. */
+    private boolean invis(Bot b, Mannequin m, double center) {
+        Bot.CombatState st = b.st;
+        if (!on(b, "invis.enabled")) {
+            return false;
+        }
+        PotionEffect ef = m.getPotionEffect(PotionEffectType.INVISIBILITY);
+        boolean has = ef != null && ef.getDuration() > intv(b, "invis.rewear-ticks");
+        if (!has) {
+            if (st.strippedArmor != null && on(b, "invis.rewear")) {
+                return rewear(b);
+            }
+            if (ef == null && st.strippedArmor == null && st.ready("invis")
+                    && center <= num(b, "invis.range") && center >= num(b, "invis.min-distance")) {
+                int s = b.findIf(i -> i.getType() == Material.POTION && isInvisPotion(i), false);
+                if (s >= 0) {
+                    st.setCd("invis", 600);
+                    st.prefighting = true;
+                    startEat(b, s, "potion");
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (!on(b, "invis.strip-armor") || center < 6.0) {
+            return false;
+        }
+        if (st.stripTimer > 0) {
+            st.stripTimer--;
+            return true;
+        }
+        for (int idx = 0; idx < 4; idx++) {
+            ItemStack piece = b.armor[idx];
+            if (Bot.empty(piece)) {
+                continue;
+            }
+            ItemStack rest = b.give(piece.clone());
+            if (rest != null) {
+                dropLeastUseful(b, m);
+                rest = b.give(rest);
+                if (rest != null) {
+                    return false;
+                }
+            }
+            if (st.strippedArmor == null) {
+                st.strippedArmor = new ItemStack[4];
+            }
+            st.strippedArmor[idx] = piece;
+            b.armor[idx] = null;
+            b.equipDirty = true;
+            st.stripTimer = Math.max(1, intv(b, "invis.strip-delay"));
+            m.getWorld().playSound(m.getLocation(), Sound.ITEM_ARMOR_EQUIP_GENERIC, 0.8f, 1f);
+            return true;
+        }
+        return false;
+    }
+
+    /** Puts stripped armor back on, one piece at a time. Returns true while still busy. */
+    private boolean rewear(Bot b) {
+        Bot.CombatState st = b.st;
+        if (st.strippedArmor == null) {
+            return false;
+        }
+        if (st.stripTimer > 0) {
+            st.stripTimer--;
+            return true;
+        }
+        for (int idx = 0; idx < 4; idx++) {
+            ItemStack want = st.strippedArmor[idx];
+            if (want == null) {
+                continue;
+            }
+            st.strippedArmor[idx] = null;
+            int slot = b.findIf(i -> i.isSimilar(want), false);
+            if (slot >= 0 && Bot.empty(b.armor[idx])) {
+                b.inv[slot] = null;
+                b.armor[idx] = want;
+                b.equipDirty = true;
+                st.stripTimer = Math.max(1, intv(b, "invis.strip-delay"));
+                return true;
+            }
+        }
+        st.strippedArmor = null;
+        return false;
+    }
+
+    private static int keepScore(ItemStack it) {
+        Material mt = it.getType();
+        String n = mt.name();
+        if (mt == Material.TOTEM_OF_UNDYING) {
+            return 100;
+        }
+        if (mt == Material.ENCHANTED_GOLDEN_APPLE || mt == Material.GOLDEN_APPLE) {
+            return 95;
+        }
+        if (n.endsWith("_SWORD") || n.endsWith("_AXE") || n.endsWith("_SPEAR") || mt == Material.MACE
+                || mt == Material.TRIDENT) {
+            return 90;
+        }
+        if (mt == Material.POTION || mt == Material.SPLASH_POTION || mt == Material.SHIELD) {
+            return 85;
+        }
+        if (mt == Material.ENDER_PEARL || mt == Material.WIND_CHARGE || mt == Material.ELYTRA) {
+            return 80;
+        }
+        if (mt == Material.WATER_BUCKET || mt == Material.LAVA_BUCKET || mt == Material.COBWEB) {
+            return 75;
+        }
+        if (n.contains("BOW") || n.contains("ARROW") || mt == Material.FIREWORK_ROCKET) {
+            return 70;
+        }
+        if (mt == Material.END_CRYSTAL || mt == Material.RESPAWN_ANCHOR || mt == Material.OBSIDIAN
+                || mt == Material.TNT_MINECART || mt == Material.RAIL) {
+            return 65;
+        }
+        if (n.endsWith("_HELMET") || n.endsWith("_CHESTPLATE") || n.endsWith("_LEGGINGS") || n.endsWith("_BOOTS")) {
+            return 55;
+        }
+        if (mt.isEdible()) {
+            return 30;
+        }
+        if (mt.isBlock()) {
+            return 25;
+        }
+        return 10;
+    }
+
+    /** Throws the least useful stack out of the inventory to make room. */
+    private void dropLeastUseful(Bot b, Mannequin m) {
+        int worst = -1;
+        long worstScore = Long.MAX_VALUE;
+        for (int i = 0; i < 36; i++) {
+            if (Bot.empty(b.inv[i])) {
+                continue;
+            }
+            long sc = keepScore(b.inv[i]) * 1000L - b.inv[i].getAmount();
+            if (sc < worstScore) {
+                worstScore = sc;
+                worst = i;
+            }
+        }
+        if (worst < 0) {
+            return;
+        }
+        ItemStack out = b.inv[worst];
+        b.inv[worst] = null;
+        b.equipDirty = true;
+        org.bukkit.entity.Item drop = m.getWorld().dropItem(m.getEyeLocation(), out);
+        drop.setVelocity(m.getEyeLocation().getDirection().multiply(0.25));
+        drop.setPickupDelay(40);
+        drop.setThrower(m.getUniqueId());
+        m.swingMainHand();
+    }
+
     private boolean heal(Bot b, Mannequin m) {
         if (!on(b, "heal.enabled") || b.st.eatTicks > 0) {
             return false;
         }
         double hp = m.getHealth();
-        if (on(b, "pearl.heal")
+        if (on(b, "pearl.heal") && b.st.turtleTicks <= 0
                 && (hp <= num(b, "heal.gap-health") || hp <= num(b, "heal.potion-health"))
                 && hasHealItem(b)) {
             LivingEntity enemy = currentTarget(b);
@@ -1130,7 +1441,7 @@ public class BotCombat {
         }
         b.st.setCd("buff", intv(b, "buff.cooldown"));
         int s = b.findIf(i -> {
-            if (i.getType() != Material.POTION || isHealingPotion(i)) {
+            if (i.getType() != Material.POTION || isHealingPotion(i) || isTurtle(i) || isInvisPotion(i)) {
                 return false;
             }
             for (PotionEffect e : effectsOf(i)) {
@@ -2350,7 +2661,8 @@ public class BotCombat {
         if (slot < 0) {
             return false;
         }
-        boolean escape = on(b, "pearl.escape") && m.getHealth() <= num(b, "pearl.escape-health") && dist < 10;
+        boolean escape = on(b, "pearl.escape") && m.getHealth() <= num(b, "pearl.escape-health") && dist < 10
+                && b.st.turtleTicks <= 0;
         boolean close = dist > (on(b, "pcrit.enabled") ? 6.0 : num(b, "pearl.min-distance"));
         if (!escape && !close) {
             return false;

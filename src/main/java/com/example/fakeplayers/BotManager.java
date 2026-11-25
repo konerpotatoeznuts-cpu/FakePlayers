@@ -447,6 +447,7 @@ public class BotManager {
         }
 
         greetTick(b, m);
+        pickupTick(b, m);
         nav.checkAttack(b, m);
         if (b.clickTarget != null && nav.stealthTick(b, m)) {
             return;
@@ -490,15 +491,85 @@ public class BotManager {
         if (followed != null && followed.getWorld().equals(m.getWorld())) {
             double dist = followed.getLocation().distance(m.getLocation());
             if (dist > plugin.getConfig().getDouble("follow.distance", 3.0)) {
-                moveToward(b, m, followed.getLocation());
+                walkOrArrive(b, m, followed.getLocation());
             } else {
                 face(m, followed.getEyeLocation());
             }
             return;
         }
 
+        if (seekItems(b, m)) {
+            return;
+        }
         processQueue(b, m);
         patrolTick(b);
+    }
+
+    // ------------------------------------------------------------ picking up items
+
+    private void pickupTick(Bot b, Mannequin m) {
+        if (tickCount % 4 != 0 || !PvpOptions.bool(plugin, b, "pickup.enabled")) {
+            return;
+        }
+        double r = Math.max(0.5, PvpOptions.dbl(plugin, b, "pickup.range"));
+        int taken = 0;
+        for (org.bukkit.entity.Entity e : m.getNearbyEntities(r, r, r)) {
+            if (!(e instanceof org.bukkit.entity.Item it) || it.getPickupDelay() > 0 || it.isDead()
+                    || m.getUniqueId().equals(it.getThrower())) {
+                continue;
+            }
+            ItemStack stack = it.getItemStack();
+            if (!b.canFit(stack)) {
+                continue;
+            }
+            ItemStack rest = b.give(stack.clone());
+            if (rest == null) {
+                it.remove();
+            } else {
+                it.setItemStack(rest);
+            }
+            m.getWorld().playSound(m.getLocation(), org.bukkit.Sound.ENTITY_ITEM_PICKUP, 0.5f, 1.2f);
+            if (++taken >= 3) {
+                break;
+            }
+        }
+    }
+
+    /** Idle bots walk to dropped items nearby (only when they have room for them). */
+    private boolean seekItems(Bot b, Mannequin m) {
+        if (!PvpOptions.bool(plugin, b, "pickup.enabled") || !PvpOptions.bool(plugin, b, "pickup.seek")
+                || b.immovable || b.walkTarget != null || b.navGoal != null || !b.queue.isEmpty()
+                || !b.patrol.isEmpty() || b.waitTicks > 0) {
+            return false;
+        }
+        if (b.seekPause > 0) {
+            b.seekPause--;
+            return false;
+        }
+        double range = PvpOptions.dbl(plugin, b, "pickup.seek-range");
+        org.bukkit.entity.Item best = null;
+        double bestD = Double.MAX_VALUE;
+        for (org.bukkit.entity.Entity e : m.getNearbyEntities(range, range, range)) {
+            if (e instanceof org.bukkit.entity.Item it && !it.isDead() && !m.getUniqueId().equals(it.getThrower())
+                    && b.canFit(it.getItemStack()) && it.getPickupDelay() < 60) {
+                double d = it.getLocation().distanceSquared(m.getLocation());
+                if (d < bestD) {
+                    bestD = d;
+                    best = it;
+                }
+            }
+        }
+        if (best == null) {
+            b.seekTicks = 0;
+            return false;
+        }
+        if (++b.seekTicks > 240) {
+            b.seekTicks = 0;
+            b.seekPause = 400;
+            return false;
+        }
+        walkOrArrive(b, m, best.getLocation());
+        return true;
     }
 
     // ------------------------------------------------------------ patrol, greetings, replies
@@ -713,6 +784,15 @@ public class BotManager {
         m.setRotation(yaw, pitch);
     }
 
+    /** Pathfinds toward a goal; falls back to walking straight when there is no walkable route. */
+    private boolean walkOrArrive(Bot b, Mannequin m, Location goal) {
+        BotNav.PathState s = nav.walkPath(b, m, goal);
+        if (s == BotNav.PathState.FAILED) {
+            return moveToward(b, m, goal);
+        }
+        return s == BotNav.PathState.ARRIVED;
+    }
+
     // ------------------------------------------------------------ queue
 
     private void processQueue(Bot b, Mannequin m) {
@@ -722,7 +802,7 @@ public class BotManager {
         }
         if (b.walkTarget != null) {
             b.walkTicks++;
-            if (moveToward(b, m, b.walkTarget) || b.walkTicks > 600) {
+            if (walkOrArrive(b, m, b.walkTarget) || b.walkTicks > 600) {
                 b.walkTarget = null;
                 b.walkTicks = 0;
             } else {

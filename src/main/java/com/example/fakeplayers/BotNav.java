@@ -40,6 +40,7 @@ public class BotNav {
             b.navLast = null;
             b.navDig = -1;
             b.navDigAt = null;
+            clearPath(b);
             b.queue.clear();
             b.walkTarget = null;
             b.waitTicks = 0;
@@ -171,6 +172,102 @@ public class BotNav {
         return new Location(w, x + 0.5, l.getY(), z + 0.5);
     }
 
+    // ------------------------------------------------------------ pathfinding
+
+    public enum PathState { MOVING, ARRIVED, FAILED }
+
+    public void clearPath(Bot b) {
+        b.path = null;
+        b.pathGoal = null;
+        b.pathIdx = 0;
+        b.pathCd = 0;
+        b.pathStuck = 0;
+        b.pathLast = null;
+    }
+
+    /** Walks toward a goal along an A* route. FAILED = no (further) walkable route; the caller may dig or build. */
+    public PathState walkPath(Bot b, Mannequin m, Location goal) {
+        Location cur = m.getLocation();
+        if (!PvpOptions.bool(plugin, b, "nav.pathfinding")) {
+            return mgr.moveToward(b, m, goal) ? PathState.ARRIVED : PathState.MOVING;
+        }
+        if (goal.getWorld() == null || !goal.getWorld().equals(cur.getWorld())) {
+            return PathState.FAILED;
+        }
+        double h = Math.hypot(goal.getX() - cur.getX(), goal.getZ() - cur.getZ());
+        double dy = goal.getY() - cur.getY();
+        if (h < 0.8 && Math.abs(dy) < 1.6) {
+            return PathState.ARRIVED;
+        }
+        if (b.pathCd > 0) {
+            b.pathCd--;
+        }
+        b.pathTicks++;
+
+        // stuck detection while following a route
+        if (b.pathTicks % 10 == 0) {
+            if (b.pathLast != null && b.pathLast.getWorld() == cur.getWorld() && b.pathLast.distanceSquared(cur) < 0.04) {
+                b.pathStuck++;
+            } else {
+                b.pathStuck = 0;
+            }
+            b.pathLast = cur.clone();
+        }
+
+        boolean need = b.path == null || b.pathGoal == null
+                || b.pathGoal.getWorld() != goal.getWorld() || b.pathGoal.distanceSquared(goal) > 4.0
+                || b.pathStuck >= 2 || (b.pathPartial && b.pathTicks > 80);
+        if (!need && b.path != null && b.pathIdx < b.path.size()
+                && Math.abs(b.path.get(b.pathIdx).getY() - cur.getY()) > 4.0) {
+            need = true;
+        }
+        if (need) {
+            if (b.pathCd > 0) {
+                return b.path == null || b.pathIdx >= b.path.size() ? PathState.FAILED : follow(b, m, goal);
+            }
+            BotPath.Result r = BotPath.find(cur, goal,
+                    Math.max(500, PvpOptions.integer(plugin, b, "nav.path-nodes")),
+                    Math.max(0, PvpOptions.integer(plugin, b, "nav.max-drop")));
+            b.pathCd = 10;
+            b.pathTicks = 0;
+            b.pathStuck = 0;
+            b.pathGoal = goal.clone();
+            b.pathIdx = 0;
+            if (r == null) {
+                b.path = null;
+                return PathState.FAILED;
+            }
+            b.path = r.nodes();
+            b.pathPartial = !r.complete();
+            // skip the node we are standing on
+            while (b.pathIdx < b.path.size() && reached(cur, b.path.get(b.pathIdx))) {
+                b.pathIdx++;
+            }
+        }
+        return follow(b, m, goal);
+    }
+
+    private boolean reached(Location cur, Location node) {
+        return Math.hypot(node.getX() - cur.getX(), node.getZ() - cur.getZ()) < 0.5
+                && Math.abs(node.getY() - cur.getY()) < 1.3;
+    }
+
+    private PathState follow(Bot b, Mannequin m, Location goal) {
+        Location cur = m.getLocation();
+        while (b.pathIdx < b.path.size() && reached(cur, b.path.get(b.pathIdx))) {
+            b.pathIdx++;
+        }
+        if (b.pathIdx >= b.path.size()) {
+            if (b.pathPartial) {
+                return PathState.FAILED;
+            }
+            mgr.moveToward(b, m, goal);
+            return PathState.MOVING;
+        }
+        mgr.moveToward(b, m, b.path.get(b.pathIdx));
+        return PathState.MOVING;
+    }
+
     // ------------------------------------------------------------ tick
 
     /** Returns true while the bot is busy travelling to a clicked block. */
@@ -198,27 +295,33 @@ public class BotNav {
             applyStealth(b, m, false);
             b.navGoal = null;
             b.navLast = null;
+            clearPath(b);
             return false;
         }
-        if (b.navTicks % 10 == 0) {
-            if (b.navLast != null && b.navLast.distanceSquared(l) < 0.04) {
-                b.navStuck++;
-            } else {
-                b.navStuck = 0;
-            }
-            b.navLast = l.clone();
+        PathState ps = walkPath(b, m, goal);
+        if (ps == PathState.MOVING) {
+            b.navDigAt = null;
+            b.navDig = -1;
+            return true;
         }
-        boolean stuck = b.navStuck >= 1;
+        if (ps == PathState.ARRIVED) {
+            b.stealth = false;
+            applyStealth(b, m, false);
+            b.navGoal = null;
+            clearPath(b);
+            return false;
+        }
+
+        // no walkable route (or the closest reachable point): build up or dig, only now
         boolean build = PvpOptions.bool(plugin, b, "nav.build");
         boolean dig = PvpOptions.bool(plugin, b, "nav.dig");
-
-        if (dy > 1.2 && (h < 2.5 || stuck) && build && pillar(b, m)) {
+        if (dy > 1.2 && build && pillar(b, m)) {
             return true;
         }
         if (dy < -1.2 && h < 2.5 && dig && digDown(b, m)) {
             return true;
         }
-        if (stuck && dig && h > 0.9 && digAhead(b, m, dx / h, dz / h)) {
+        if (dig && h > 0.9 && digAhead(b, m, dx / h, dz / h)) {
             return true;
         }
         b.navDigAt = null;
@@ -418,6 +521,8 @@ public class BotNav {
             b.navDigAt = null;
             b.navDig = -1;
             b.navStuck = 0;
+            b.path = null;
+            b.pathCd = 0;
         }
         return true;
     }

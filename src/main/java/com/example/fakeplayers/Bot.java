@@ -54,6 +54,11 @@ public class Bot {
         public boolean restoreChest;
         public boolean shieldRaised;
         public int webTicks;
+        public int turtleTicks;
+        public boolean prefightDone;
+        public boolean prefighting;
+        public ItemStack[] strippedArmor;
+        public int stripTimer;
         public boolean smArming;
         public double vy;
         public int totemWait;
@@ -114,8 +119,18 @@ public class Bot {
     public boolean equipDirty = true;
 
     // runtime
+    public int seekTicks = 0;
+    public int seekPause = 0;
     public Location walkTarget = null;
     public Location navGoal = null;
+    public java.util.List<Location> path = null;
+    public int pathIdx = 0;
+    public Location pathGoal = null;
+    public boolean pathPartial = false;
+    public int pathCd = 0;
+    public int pathTicks = 0;
+    public int pathStuck = 0;
+    public Location pathLast = null;
     public int navTicks = 0;
     public int navStuck = 0;
     public Location navLast = null;
@@ -174,6 +189,17 @@ public class Bot {
             s.setAmount(s.getAmount() - amount);
         }
         equipDirty = true;
+    }
+
+    /** True if at least part of this item would fit in the inventory. */
+    public boolean canFit(ItemStack item) {
+        for (int i = 0; i < 36; i++) {
+            ItemStack s = inv[i];
+            if (empty(s) || (s.isSimilar(item) && s.getAmount() < s.getMaxStackSize())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Adds an item to the inventory; returns what did not fit (or null). */
