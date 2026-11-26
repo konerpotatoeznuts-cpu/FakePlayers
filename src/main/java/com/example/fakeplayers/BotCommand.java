@@ -2,6 +2,7 @@ package com.example.fakeplayers;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -20,7 +21,7 @@ public class BotCommand implements CommandExecutor, TabCompleter {
     private static final List<String> SUBS = List.of(
             "help", "spawn", "remove", "list", "config", "pvp", "inv", "platform", "preset", "kit", "target",
             "select", "tp", "goto", "follow", "look", "say", "equip", "place", "break", "attack", "queue",
-            "loop", "set", "addline", "clearlines", "use", "respawn", "reload", "link", "unlink", "waypoint", "script", "patrol", "reply", "greet");
+            "loop", "set", "addline", "clearlines", "use", "respawn", "reload", "link", "unlink", "waypoint", "script", "patrol", "reply", "greet", "shield", "trim");
 
     private static final List<String> SET_KEYS = List.of(
             "skin", "invulnerable", "immovable", "followop", "autochat", "chatinterval", "speed", "leave", "rejoin");
@@ -51,6 +52,7 @@ public class BotCommand implements CommandExecutor, TabCompleter {
         switch (sub) {
             case "reload" -> {
                 plugin.reloadConfig();
+                mgr().weapons().reload();
                 PvpOptions.writeDefaults(plugin.getConfig());
                 plugin.msg(sender, "reloaded");
                 return true;
@@ -455,6 +457,101 @@ public class BotCommand implements CommandExecutor, TabCompleter {
                 plugin.msg(sender, "done");
                 return true;
             }
+            case "shield" -> {
+                // /bot shield <bot> base <color> | add <pattern> <color> | undo | clear | gui
+                String act = rest.length > 0 ? rest[0].toLowerCase(Locale.ROOT) : "gui";
+                switch (act) {
+                    case "gui" -> {
+                        if (sender instanceof Player gp) {
+                            gp.openInventory(new StyleGui(b, StyleGui.Mode.SHIELD).getInventory());
+                        }
+                        return true;
+                    }
+                    case "base" -> {
+                        if (rest.length < 2 || Cosmetics.color(rest[1]) == null) {
+                            plugin.msg(sender, "bad-args", "usage", "/bot shield <bot> base <dye color>");
+                            return true;
+                        }
+                        b.bannerBase = rest[1].toLowerCase(Locale.ROOT);
+                    }
+                    case "add" -> {
+                        if (rest.length < 3 || Cosmetics.color(rest[2]) == null
+                                || org.bukkit.Registry.BANNER_PATTERN.get(Cosmetics.key(rest[1])) == null) {
+                            plugin.msg(sender, "bad-args", "usage", "/bot shield <bot> add <pattern> <dye color>");
+                            return true;
+                        }
+                        if (b.bannerBase == null) {
+                            b.bannerBase = "white";
+                        }
+                        if (b.bannerLayers.size() >= 6) {
+                            plugin.info(sender, "<red>A banner holds at most 6 layers.");
+                            return true;
+                        }
+                        b.bannerLayers.add(rest[1].toLowerCase(Locale.ROOT) + ":" + rest[2].toLowerCase(Locale.ROOT));
+                    }
+                    case "undo" -> {
+                        if (!b.bannerLayers.isEmpty()) {
+                            b.bannerLayers.remove(b.bannerLayers.size() - 1);
+                        }
+                    }
+                    case "clear" -> {
+                        b.bannerBase = null;
+                        b.bannerLayers.clear();
+                        if (b.offhand != null && b.offhand.getType() == Material.SHIELD) {
+                            b.offhand = new ItemStack(Material.SHIELD);
+                        }
+                    }
+                    default -> {
+                        plugin.msg(sender, "bad-args", "usage",
+                                "/bot shield <bot> gui | base <color> | add <pattern> <color> | undo | clear");
+                        return true;
+                    }
+                }
+                Cosmetics.apply(b);
+                mgr().save();
+                plugin.msg(sender, "done");
+                return true;
+            }
+            case "trim" -> {
+                // /bot trim <bot> <helmet|chestplate|leggings|boots|all> <pattern> <material> | clear | gui
+                if (rest.length == 0 || rest[0].equalsIgnoreCase("gui")) {
+                    if (sender instanceof Player gp) {
+                        gp.openInventory(new StyleGui(b, StyleGui.Mode.TRIM).getInventory());
+                    }
+                    return true;
+                }
+                boolean all = rest[0].equalsIgnoreCase("all");
+                int idx = all ? -1 : Cosmetics.slotIndex(rest[0]);
+                if (!all && idx < 0) {
+                    plugin.msg(sender, "bad-args", "usage",
+                            "/bot trim <bot> <helmet|chestplate|leggings|boots|all> <pattern> <material> | clear");
+                    return true;
+                }
+                boolean clear = rest.length > 1 && rest[1].equalsIgnoreCase("clear");
+                String spec = null;
+                if (!clear) {
+                    if (rest.length < 3
+                            || org.bukkit.Registry.TRIM_PATTERN.get(Cosmetics.key(rest[1])) == null
+                            || org.bukkit.Registry.TRIM_MATERIAL.get(Cosmetics.key(rest[2])) == null) {
+                        plugin.msg(sender, "bad-args", "usage",
+                                "/bot trim <bot> <piece|all> <pattern> <material> | clear   (tab-complete lists them)");
+                        return true;
+                    }
+                    spec = rest[1].toLowerCase(Locale.ROOT) + ":" + rest[2].toLowerCase(Locale.ROOT);
+                }
+                for (int i = 0; i < 4; i++) {
+                    if (all || i == idx) {
+                        b.trims[i] = spec;
+                        if (spec == null) {
+                            Cosmetics.untrim(b.armor[i]);
+                        }
+                    }
+                }
+                Cosmetics.apply(b);
+                mgr().save();
+                plugin.msg(sender, "done");
+                return true;
+            }
             case "greet" -> {
                 if (rest.length < 1) {
                     plugin.msg(sender, "bad-args", "usage", "/bot greet <bot> <text...|off>  (%player% = name)");
@@ -647,7 +744,8 @@ public class BotCommand implements CommandExecutor, TabCompleter {
                 "/bot inv <bot> - inventory, hotbar, armor, off hand",
                 "/bot platform <bot> <java|bedrock>",
                 "/bot pvp <bot> <on|off|gui|list|get|set|reset> - PvP options",
-                "/bot preset <bot> <name>, /bot kit <bot> [name], /bot target <bot> <player|off>",
+                "/bot preset <bot> <name>, /bot kit <bot> [name] (kits.yml), /bot target <bot> <player|off>",
+                "/bot shield <bot> gui|base|add|undo|clear (banner), /bot trim <bot> <piece|all> <pattern> <material>|clear|gui",
                 "/bot attack <bot> <players|hostiles|both|off>",
                 "/bot select <bot> <1-9> - choose the held hotbar slot",
                 "/bot tp|goto|follow|look|say|equip|place|break|use ...",
@@ -695,9 +793,12 @@ public class BotCommand implements CommandExecutor, TabCompleter {
                 case "set" -> filter(SET_KEYS, args[2], out);
                 case "pvp" -> filter(PVP_SUBS, args[2], out);
                 case "platform" -> filter(List.of("java", "bedrock"), args[2], out);
-                case "preset", "kit" -> filter(plugin.presets(), args[2], out);
+                case "preset" -> filter(plugin.presets(), args[2], out);
+                case "kit" -> filter(plugin.kitNames(), args[2], out);
                 case "attack" -> filter(List.of("players", "hostiles", "both", "off"), args[2], out);
                 case "loop" -> filter(List.of("on", "off"), args[2], out);
+                case "shield" -> filter(List.of("gui", "base", "add", "undo", "clear"), args[2], out);
+                case "trim" -> filter(List.of("gui", "all", "helmet", "chestplate", "leggings", "boots"), args[2], out);
                 case "equip" -> filter(List.of("mainhand", "offhand", "head", "chest", "legs", "feet"), args[2], out);
                 case "queue" -> filter(List.of("goto", "wait", "say", "look", "select", "place", "break", "use", "clear"),
                         args[2], out);
@@ -711,6 +812,31 @@ public class BotCommand implements CommandExecutor, TabCompleter {
                 }
                 default -> {
                 }
+            }
+        } else if (args.length >= 4 && args[0].equalsIgnoreCase("shield")) {
+            List<String> colors = new ArrayList<>();
+            for (org.bukkit.DyeColor dc : org.bukkit.DyeColor.values()) {
+                colors.add(dc.name().toLowerCase(Locale.ROOT));
+            }
+            String act = args[2].toLowerCase(Locale.ROOT);
+            if (act.equals("base") && args.length == 4) {
+                filter(colors, args[3], out);
+            } else if (act.equals("add") && args.length == 4) {
+                List<String> ps = new ArrayList<>();
+                Cosmetics.patternTypes().forEach(pt -> ps.add(Cosmetics.name(pt)));
+                filter(ps, args[3], out);
+            } else if (act.equals("add") && args.length == 5) {
+                filter(colors, args[4], out);
+            }
+        } else if (args.length >= 4 && args[0].equalsIgnoreCase("trim")) {
+            if (args.length == 4) {
+                List<String> ps = new ArrayList<>(List.of("clear"));
+                Cosmetics.trimPatterns().forEach(tp -> ps.add(Cosmetics.name(tp)));
+                filter(ps, args[3], out);
+            } else if (args.length == 5) {
+                List<String> ms = new ArrayList<>();
+                Cosmetics.trimMaterials().forEach(tm -> ms.add(Cosmetics.name(tm)));
+                filter(ms, args[4], out);
             }
         } else if (args.length == 4 && args[0].equalsIgnoreCase("look")) {
             filter(List.of("continuous"), args[3], out);

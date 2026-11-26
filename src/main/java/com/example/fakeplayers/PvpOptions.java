@@ -215,6 +215,7 @@ public final class PvpOptions {
         b("swap.attribute", true, Material.NETHERITE_AXE, "Attribute swap: charge with the fastest weapon, hit with the best one");
         b("swap.breach", true, Material.MACE, "Breach swap: use a Breach mace for the smash if you have one");
         // ---- spear + mace
+        b("lungeswap.air-only", true, Material.FEATHER, "Lunge swap only for mid-air travel after a wind charge / pearl catch (not as a ground attack)");
         b("lungeswap.enabled", false, Material.NETHERITE_SPEAR, "Lunge swapping: lunge with the spear using a fast item's cooldown (same-tick attribute swap)");
         d("lungeswap.min-range", 3.0, 0.5, Material.SPYGLASS, "Minimum distance to lunge");
         d("lungeswap.max-range", 12.0, 0.5, Material.SPYGLASS, "Maximum distance to lunge");
@@ -258,6 +259,12 @@ public final class PvpOptions {
         d("move.strafe-amount", 0.15, 0.05, Material.COMPASS, "How much sideways movement (0 = none, 1 = lots)");
         i("lava.combo-delay", 2, 1, Material.LAVA_BUCKET, "Ticks between the web and the lava on top of it");
         b("water.web-escape", true, Material.WATER_BUCKET, "Place water on a web the bot is stuck in");
+        c("web.technique", "ground-lava", Material.COBWEB, "ground-lava: web on the ground behind the target then lava ON the web. head-box: web, then blocks around the web", "ground-lava", "head-box", "plain");
+        b("web.after-hit", true, Material.IRON_SWORD, "Only web right after landing a (sprint) hit");
+        t("web.box-blocks", "OBSIDIAN,COBBLESTONE,STONE,DEEPSLATE,DIRT,NETHERRACK,END_STONE", Material.COBBLESTONE, "Blocks used to box in the web (head-box), first one the bot has");
+        d("move.air-speed", 1.0, 0.1, Material.FEATHER, "Mid-air steering strength (1.0 = like a player)");
+        i("elytra.aim-ticks", 8, 1, Material.CLOCK, "Ticks spent hanging in the air with the chestplate on, aiming at the target");
+        d("elytra.dive-range", 7.0, 0.5, Material.SPYGLASS, "Distance to the target at which the bot swaps back to the chestplate and maces");
         i("web.cut-ticks", 30, 5, Material.SHEARS, "Cut free of a web after this many ticks if no water (0 = never)");
         b("pearl.heal", true, Material.GOLDEN_APPLE, "Pearl away before healing when an enemy is close");
     }

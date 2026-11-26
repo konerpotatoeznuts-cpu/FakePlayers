@@ -17,6 +17,9 @@ public class FakePlayersPlugin extends JavaPlugin {
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        if (!new java.io.File(getDataFolder(), "kits.yml").exists()) {
+            saveResource("kits.yml", false);
+        }
         PvpOptions.writeDefaults(getConfig());
         saveConfig();
         scripts = new BotScript(this);
@@ -47,6 +50,29 @@ public class FakePlayersPlugin extends JavaPlugin {
     }
 
     /** Names of the presets defined in config.yml. */
+    /** Kits from kits.yml (wins) merged with the older pvp.kits in config.yml. */
+    public java.util.List<String> kitLines(String name) {
+        org.bukkit.configuration.file.YamlConfiguration y = org.bukkit.configuration.file.YamlConfiguration
+                .loadConfiguration(new java.io.File(getDataFolder(), "kits.yml"));
+        java.util.List<String> l = y.getStringList("kits." + name);
+        return l.isEmpty() ? getConfig().getStringList("pvp.kits." + name) : l;
+    }
+
+    public java.util.List<String> kitNames() {
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+        org.bukkit.configuration.file.YamlConfiguration y = org.bukkit.configuration.file.YamlConfiguration
+                .loadConfiguration(new java.io.File(getDataFolder(), "kits.yml"));
+        org.bukkit.configuration.ConfigurationSection a = y.getConfigurationSection("kits");
+        if (a != null) {
+            out.addAll(a.getKeys(false));
+        }
+        org.bukkit.configuration.ConfigurationSection c = getConfig().getConfigurationSection("pvp.kits");
+        if (c != null) {
+            out.addAll(c.getKeys(false));
+        }
+        return new java.util.ArrayList<>(out);
+    }
+
     public java.util.List<String> presets() {
         org.bukkit.configuration.ConfigurationSection s = getConfig().getConfigurationSection("pvp.presets");
         return s == null ? java.util.List.of() : new java.util.ArrayList<>(s.getKeys(false));
