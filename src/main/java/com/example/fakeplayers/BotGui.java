@@ -33,6 +33,8 @@ public class BotGui implements InventoryHolder {
     public static final int SLOT_DROP = 26;
     public static final int SLOT_LEAVE = 27;
     public static final int SLOT_REJOIN = 29;
+    public static final int SLOT_SHIELD = 30;
+    public static final int SLOT_TRIM = 31;
     public static final int SLOT_CLOSE = 34;
 
     private final Bot bot;
@@ -68,8 +70,8 @@ public class BotGui implements InventoryHolder {
         inventory.setItem(SLOT_PVP, button(Material.NETHERITE_SWORD, "PvP settings", NamedTextColor.RED));
         inventory.setItem(SLOT_PRESET, info(Material.NAME_TAG, "Style preset: " + bot.preset,
                 "Click for next preset, right-click for previous", "Clears this bot's custom PvP values"));
-        inventory.setItem(SLOT_KIT, info(Material.SHULKER_BOX, "Give kit: " + bot.preset,
-                "Replaces the inventory with the kit", "named like the preset (config pvp.kits)"));
+        inventory.setItem(SLOT_KIT, info(Material.SHULKER_BOX, "Give kit: " + bot.preset + (bot.lastKit == null ? "" : " (last: " + bot.lastKit + ")"),
+                "Click: kit named like the preset", "Right-click: cycle through ALL kits (kits.yml)"));
         inventory.setItem(SLOT_TP_HERE, button(Material.ENDER_PEARL, "Teleport bot to me", NamedTextColor.LIGHT_PURPLE));
         inventory.setItem(SLOT_SET_HOME, button(Material.RED_BED, "Set respawn point here", NamedTextColor.AQUA));
         inventory.setItem(SLOT_USE, button(Material.NETHER_STAR, "Run 'on-use' integration commands", NamedTextColor.GOLD));
@@ -77,6 +79,8 @@ public class BotGui implements InventoryHolder {
         inventory.setItem(SLOT_LEAVE, toggle(Material.OAK_DOOR, "Leave the game when killed", bot.leaveOnDeath));
         inventory.setItem(SLOT_REJOIN, info(Material.CLOCK, "Rejoin after: " + bot.rejoinSeconds + "s",
                 "Click +5s, right-click -5s", "Shift-click changes by 1s", "Used when 'leave when killed' is on"));
+        inventory.setItem(SLOT_SHIELD, button(Material.WHITE_BANNER, "Shield banner editor", NamedTextColor.AQUA));
+        inventory.setItem(SLOT_TRIM, button(Material.NETHERITE_CHESTPLATE, "Armor trims editor", NamedTextColor.LIGHT_PURPLE));
         inventory.setItem(SLOT_REMOVE, button(Material.BARRIER, "Remove bot", NamedTextColor.RED));
         inventory.setItem(SLOT_CLOSE, button(Material.OAK_DOOR, "Close", NamedTextColor.GRAY));
     }

@@ -362,6 +362,10 @@ public class BotListener implements Listener {
             onPvpClick(e, gui, top);
             return;
         }
+        if (top.getHolder() instanceof StyleGui sg) {
+            onStyleClick(e, sg, top);
+            return;
+        }
         if (!(top.getHolder() instanceof BotGui gui)) {
             return;
         }
@@ -406,13 +410,27 @@ public class BotListener implements Listener {
                 Bukkit.getScheduler().runTask(plugin, () -> p.openInventory(new InvGui(b).getInventory()));
                 return;
             }
+            case BotGui.SLOT_SHIELD -> {
+                Bukkit.getScheduler().runTask(plugin, () -> p.openInventory(new StyleGui(b, StyleGui.Mode.SHIELD).getInventory()));
+                return;
+            }
+            case BotGui.SLOT_TRIM -> {
+                Bukkit.getScheduler().runTask(plugin, () -> p.openInventory(new StyleGui(b, StyleGui.Mode.TRIM).getInventory()));
+                return;
+            }
             case BotGui.SLOT_PVP -> {
                 Bukkit.getScheduler().runTask(plugin, () -> p.openInventory(new PvpGui(plugin, b, 0).getInventory()));
                 return;
             }
             case BotGui.SLOT_PRESET -> cyclePreset(b, e.isRightClick() ? -1 : 1);
             case BotGui.SLOT_KIT -> {
-                String err = Kits.apply(plugin, b, b.preset);
+                String want = b.preset;
+                if (e.isRightClick()) {
+                    List<String> names = plugin.kitNames();
+                    int at = names.indexOf(b.lastKit);
+                    want = names.isEmpty() ? b.preset : names.get((at + 1) % names.size());
+                }
+                String err = Kits.apply(plugin, b, want);
                 if (err != null) {
                     p.sendMessage(plugin.parse("<red>" + err));
                 }
@@ -562,7 +580,7 @@ public class BotListener implements Listener {
     @EventHandler
     public void onDrag(InventoryDragEvent e) {
         Inventory top = e.getView().getTopInventory();
-        if (top.getHolder() instanceof BotGui || top.getHolder() instanceof PvpGui) {
+        if (top.getHolder() instanceof BotGui || top.getHolder() instanceof PvpGui || top.getHolder() instanceof StyleGui) {
             e.setCancelled(true);
             return;
         }
@@ -577,6 +595,92 @@ public class BotListener implements Listener {
                 gui.saveToBot();
                 mgr().save();
             });
+        }
+    }
+
+    private void onStyleClick(InventoryClickEvent e, StyleGui g, Inventory top) {
+        e.setCancelled(true);
+        if (!(e.getWhoClicked() instanceof Player p) || !p.isOp()
+                || e.getClickedInventory() == null || e.getClickedInventory() != top) {
+            return;
+        }
+        Bot b = g.bot();
+        int slot = e.getSlot();
+        boolean shield = g.mode == StyleGui.Mode.SHIELD;
+        if (slot == StyleGui.CLOSE) {
+            p.closeInventory();
+            return;
+        }
+        if (slot == StyleGui.BACK) {
+            Bukkit.getScheduler().runTask(plugin, () -> p.openInventory(new BotGui(b).getInventory()));
+            return;
+        }
+        if (slot == StyleGui.PREV) {
+            g.page = Math.max(0, g.page - 1);
+        } else if (slot == StyleGui.NEXT) {
+            g.page = Math.min(g.pageCount() - 1, g.page + 1);
+        } else if (shield) {
+            if (slot >= 9 && slot < 25) {
+                g.color = slot - 9;
+            } else if (slot == StyleGui.APPLY_BASE) {
+                b.bannerBase = g.selectedColorName();
+            } else if (slot == StyleGui.UNDO) {
+                if (!b.bannerLayers.isEmpty()) {
+                    b.bannerLayers.remove(b.bannerLayers.size() - 1);
+                }
+            } else if (slot == StyleGui.CLEAR) {
+                b.bannerBase = null;
+                b.bannerLayers.clear();
+                restoreShields(b);
+            } else {
+                String pat = g.patternAt(slot);
+                if (pat != null && b.bannerLayers.size() < 6) {
+                    if (b.bannerBase == null) {
+                        b.bannerBase = "white";
+                    }
+                    b.bannerLayers.add(pat + ":" + g.selectedColorName());
+                }
+            }
+            Cosmetics.apply(b);
+        } else {
+            if (slot >= 0 && slot < 4) {
+                g.piece = g.piece == slot ? -1 : slot;
+            } else if (slot >= 9 && slot < 25) {
+                g.material = slot - 9;
+            } else if (slot == StyleGui.UNDO) {
+                for (int i = 0; i < 4; i++) {
+                    if (g.piece < 0 || g.piece == i) {
+                        b.trims[i] = null;
+                        Cosmetics.untrim(b.armor[i]);
+                    }
+                }
+            } else if (slot == StyleGui.CLEAR) {
+                for (int i = 0; i < 4; i++) {
+                    b.trims[i] = null;
+                    Cosmetics.untrim(b.armor[i]);
+                }
+            } else {
+                String pat = g.patternAt(slot);
+                String mat = g.selectedMaterial();
+                if (pat != null && mat != null) {
+                    for (int i = 0; i < 4; i++) {
+                        if (g.piece < 0 || g.piece == i) {
+                            b.trims[i] = pat + ":" + mat;
+                        }
+                    }
+                }
+            }
+            Cosmetics.apply(b);
+        }
+        b.equipDirty = true;
+        mgr().save();
+        g.refresh();
+    }
+
+    /** Strips the custom banner off shields so "clear" really returns to the default look. */
+    private void restoreShields(Bot b) {
+        if (b.offhand != null && b.offhand.getType() == org.bukkit.Material.SHIELD) {
+            b.offhand = new ItemStack(org.bukkit.Material.SHIELD);
         }
     }
 

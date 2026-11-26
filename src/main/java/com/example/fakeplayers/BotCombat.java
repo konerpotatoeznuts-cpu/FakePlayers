@@ -111,6 +111,12 @@ public class BotCombat {
         if (st.noSelect > 0) {
             st.noSelect--;
         }
+        if (st.airTravel > 0) {
+            st.airTravel = m.isOnGround() ? 0 : st.airTravel - 1;
+        }
+        if (st.sinceHit < 999) {
+            st.sinceHit++;
+        }
         trackMotion(b, m);
 
         waterClutch(b, m);
@@ -194,6 +200,7 @@ public class BotCombat {
 
         bridge(b, m, t);
         selectWeapon(b, m, t);
+        mgr.weapons().tryUse(b, m, t, center);
         aimAt(b, m, aimPoint(t));
         engage(b, m, t, 1.0);
         melee(b, m, t, dist);
@@ -510,7 +517,12 @@ public class BotCombat {
             return;
         }
         int want = -1;
-        if (!m.isOnGround() && on(b, "mace.enabled")) {
+        for (int i = 0; i < 9 && want < 0; i++) {
+            if (mgr.weapons().preferred(b.inv[i])) {
+                want = i;
+            }
+        }
+        if (want < 0 && !m.isOnGround() && on(b, "mace.enabled")) {
             want = findWeapon(b, "MACE");
         }
         if (want < 0 && t instanceof Player p && p.isBlocking() && on(b, "weapon.shield-break")) {
@@ -866,8 +878,10 @@ public class BotCombat {
                 m.setVelocity(new Vector(v.getX(), 1.0 + 0.4 * wind, v.getZ()));
             }
         }
+        st.sinceHit = 0;
         String victim = t instanceof Player p ? p.getName() : t.getType().name();
         mgr.runCommands("integration.on-bot-hit", mgr.placeholders(b, m, "victim", victim));
+        mgr.weapons().onHit(b, m, t);
     }
 
     /** Particles and sounds a real player's hit would show. */
@@ -1464,10 +1478,41 @@ public class BotCombat {
         st.eatKind = kind;
         st.eatTicks = Math.max(1, intv(b, "heal.eat-ticks"));
         st.prevSelected = b.selected;
-        if (slot < 9) {
-            b.selected = slot;
-            b.equipDirty = true;
+        st.eatSwapFrom = -1;
+        st.eatSwapTo = -1;
+        if (slot >= 9) {
+            // food in the main inventory: move it into the held hotbar slot (a real player would pick it up there)
+            int to = -1;
+            for (int i = 0; i < 9; i++) {
+                if (Bot.empty(b.inv[i])) {
+                    to = i;
+                    break;
+                }
+            }
+            if (to < 0) {
+                to = b.selected;
+            }
+            ItemStack tmp = b.inv[to];
+            b.inv[to] = b.inv[slot];
+            b.inv[slot] = tmp;
+            st.eatSwapFrom = slot;
+            st.eatSwapTo = to;
+            st.eatSlot = to;
+            slot = to;
         }
+        b.selected = slot;
+        b.equipDirty = true;
+    }
+
+    private void eatSwapBack(Bot b) {
+        Bot.CombatState st = b.st;
+        if (st.eatSwapFrom >= 0 && st.eatSwapTo >= 0) {
+            ItemStack tmp = b.inv[st.eatSwapFrom];
+            b.inv[st.eatSwapFrom] = b.inv[st.eatSwapTo];
+            b.inv[st.eatSwapTo] = tmp;
+        }
+        st.eatSwapFrom = -1;
+        st.eatSwapTo = -1;
     }
 
     private void handleEating(Bot b, Mannequin m) {
@@ -1478,6 +1523,7 @@ public class BotCombat {
         ItemStack item = st.eatSlot >= 0 ? b.inv[st.eatSlot] : null;
         if (Bot.empty(item)) {
             st.eatTicks = 0;
+            eatSwapBack(b);
             return;
         }
         st.eatTicks--;
@@ -1513,6 +1559,7 @@ public class BotCombat {
                 useUp(b, st.eatSlot, Material.GLASS_BOTTLE);
             }
         }
+        eatSwapBack(b);
         if (st.prevSelected >= 0 && st.prevSelected < 9) {
             b.selected = st.prevSelected;
         }
@@ -1566,7 +1613,41 @@ public class BotCombat {
         if (!on(b, "web.enabled") || !b.st.ready("web") || dist > Math.min(num(b, "web.range"), 4.5)) {
             return false;
         }
+        if (on(b, "web.after-hit") && b.st.sinceHit > 16) {
+            return false;
+        }
         return placeWeb(b, m, t);
+    }
+
+    /** The block a web should go into: on the floor behind the target (it is being knocked back into it). */
+    private Block webSpot(Mannequin m, LivingEntity t) {
+        Location tl = t.getLocation();
+        Vector away = tl.toVector().subtract(m.getLocation().toVector()).setY(0);
+        Block base = tl.getBlock();
+        if (away.lengthSquared() > 1e-6) {
+            away.normalize();
+            Block behind = tl.clone().add(away.getX() * 1.0, 0, away.getZ() * 1.0).getBlock();
+            Block f = floorOf(behind);
+            if (f != null) {
+                return f;
+            }
+        }
+        return floorOf(base);
+    }
+
+    /** First replaceable block with solid ground beneath, searching down from the block (max 6). */
+    private static Block floorOf(Block from) {
+        Block c = from;
+        for (int i = 0; i < 7; i++) {
+            if (replaceable(c) && c.getRelative(BlockFace.DOWN).getType().isSolid()) {
+                return c;
+            }
+            if (!replaceable(c)) {
+                return null;
+            }
+            c = c.getRelative(BlockFace.DOWN);
+        }
+        return null;
     }
 
     private boolean placeWeb(Bot b, Mannequin m, LivingEntity t) {
@@ -1574,8 +1655,9 @@ public class BotCombat {
         if (slot < 0 || inWeb(t)) {
             return false;
         }
-        Block tb = t.getLocation().getBlock();
-        if (!replaceable(tb) || tb.getType() == Material.COBWEB) {
+        String tech = str(b, "web.technique");
+        Block tb = "plain".equals(tech) ? floorOf(t.getLocation().getBlock()) : webSpot(m, t);
+        if (tb == null || tb.getType() == Material.COBWEB || !replaceable(tb)) {
             return false;
         }
         if (!mgr.placeTemp(b, tb, Material.COBWEB, intv(b, "web.cleanup-ticks"), null, null)) {
@@ -1584,25 +1666,75 @@ public class BotCombat {
         if (on(b, "items.consume")) {
             b.take(slot, 1);
         }
+        b.st.webAt = tb.getLocation();
         m.swingMainHand();
         b.st.setCd("web", intv(b, "web.cooldown"));
         b.st.setCd("lava", Math.max(0, intv(b, "lava.combo-delay")));
+        if ("head-box".equals(tech)) {
+            boxWeb(b, m, tb);
+        }
         return true;
+    }
+
+    /** Head-box technique: solid blocks around the web (sides at feet and head height, and a roof). */
+    private void boxWeb(Bot b, Mannequin m, Block web) {
+        int cleanup = intv(b, "web.cleanup-ticks");
+        BlockFace[] sides = {BlockFace.NORTH, BlockFace.SOUTH, BlockFace.EAST, BlockFace.WEST};
+        List<Block> spots = new ArrayList<>();
+        for (int dy = 0; dy <= 1; dy++) {
+            for (BlockFace f : sides) {
+                spots.add(web.getRelative(f).getRelative(0, dy, 0));
+            }
+        }
+        spots.add(web.getRelative(0, 2, 0));
+        Block mine = m.getLocation().getBlock();
+        for (Block spot : spots) {
+            if (spot.equals(mine) || spot.equals(mine.getRelative(BlockFace.UP)) || !replaceable(spot)) {
+                continue;
+            }
+            int slot = -1;
+            for (String n : str(b, "web.box-blocks").split(",")) {
+                Material mat = Material.matchMaterial(n.trim());
+                if (mat != null && (slot = b.find(mat)) >= 0) {
+                    if (mgr.placeTemp(b, spot, mat, cleanup, null, null) && on(b, "items.consume")) {
+                        b.take(slot, 1);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    /** The web the target is stuck in (or standing next to), tracked from the last web this bot placed. */
+    private Block webNear(Bot b, LivingEntity t) {
+        Location w = b.st.webAt;
+        if (w == null || w.getWorld() == null || !w.getWorld().equals(t.getWorld())) {
+            return null;
+        }
+        Block wb = w.getBlock();
+        if (wb.getType() != Material.COBWEB || wb.getLocation().add(0.5, 0.5, 0.5).distance(t.getLocation()) > 2.5) {
+            return null;
+        }
+        return wb;
     }
 
     private boolean lava(Bot b, Mannequin m, LivingEntity t, double dist) {
         if (!on(b, "lava.enabled") || !b.st.ready("lava") || dist > Math.min(num(b, "lava.range"), 4.5)) {
             return false;
         }
-        if (on(b, "lava.require-web") && !inWeb(t)) {
+        Block web = inWeb(t) ? (t.getLocation().getBlock().getType() == Material.COBWEB
+                ? t.getLocation().getBlock() : t.getEyeLocation().getBlock()) : webNear(b, t);
+        if (on(b, "lava.require-web") && web == null) {
             return false;
         }
         int slot = b.find(Material.LAVA_BUCKET);
         if (slot < 0) {
             return false;
         }
-        Block tb = t.getLocation().getBlock();
-        if (!replaceable(tb) || m.getLocation().distance(tb.getLocation().add(0.5, 0, 0.5)) < 1.5) {
+        // lava goes ON TOP of the web, the web stays where it is
+        Block tb = web != null ? web.getRelative(BlockFace.UP) : t.getLocation().getBlock();
+        if (!replaceable(tb) || tb.getType() == Material.COBWEB
+                || m.getLocation().distance(tb.getLocation().add(0.5, 0, 0.5)) < 1.5) {
             return false;
         }
         Material from = on(b, "lava.retrieve") ? Material.BUCKET : null;
@@ -1988,6 +2120,7 @@ public class BotCombat {
             m.setVelocity(new Vector(v.getX(), 0.42, v.getZ()));
             m.launchProjectile(WindCharge.class, new Vector(0, -1, 0));
             m.swingMainHand();
+            b.st.airTravel = 100;
             if (on(b, "items.consume")) {
                 b.take(wc, 1);
             }
@@ -2116,6 +2249,9 @@ public class BotCombat {
         if (!on(b, "lungeswap.enabled") || b.immovable || st.shielding || st.eatTicks > 0) {
             return false;
         }
+        if (on(b, "lungeswap.air-only") && (m.isOnGround() || st.airTravel <= 0)) {
+            return false;
+        }
         double lMax = m.isOnGround() ? num(b, "lungeswap.max-range") : num(b, "lungeswap.air-range");
         if (dist < num(b, "lungeswap.min-range") || dist > lMax) {
             return false;
@@ -2211,8 +2347,9 @@ public class BotCombat {
             return false;
         }
         dir.normalize();
-        Vector v = dir.multiply(0.9 + 0.25 * Math.max(1, lunge));
-        v.setY(Math.max(v.getY(), 0.0) + 0.45);
+        Vector v = dir.multiply(0.55 + 0.15 * Math.max(1, lunge));
+        v.setY(Math.max(v.getY(), 0.0) + 0.3);
+        st.airTravel = 60;
         mgr.face(m, aimPoint(t));
         m.setVelocity(v);
         m.swingMainHand();
@@ -2227,7 +2364,30 @@ public class BotCombat {
         return true;
     }
 
-    /** Elytra macing: take off with a rocket, climb above the target, then dive bomb it with the mace. */
+    /** Puts the elytra (true) or a chestplate (false) in the chest slot by swapping with the inventory. */
+    private boolean wearChest(Bot b, boolean elytra) {
+        ItemStack cur = b.armor[1];
+        boolean isEly = !Bot.empty(cur) && cur.getType() == Material.ELYTRA;
+        if (elytra == isEly && (elytra || !Bot.empty(cur))) {
+            return true;
+        }
+        int slot = elytra ? b.find(Material.ELYTRA) : b.findIf(i -> i.getType().name().endsWith("_CHESTPLATE"), false);
+        if (slot < 0) {
+            return false;
+        }
+        b.armor[1] = b.inv[slot];
+        b.inv[slot] = cur;
+        b.equipDirty = true;
+        return true;
+    }
+
+    /**
+     * Elytra macing, as a player does it:
+     * 1 take off in the elytra and climb with rockets,
+     * 2 put the chestplate on to stop gliding and hang/fall in the air while aiming at the target,
+     * 3 put the elytra on again and glide at the target,
+     * 4 swap back to the chestplate (smash attacks do not work while gliding) and dive with the mace.
+     */
     private boolean elytra(Bot b, Mannequin m, LivingEntity t, double dist) {
         Bot.CombatState st = b.st;
         if (!on(b, "elytra.enabled")) {
@@ -2243,21 +2403,17 @@ public class BotCombat {
             }
             int mace = findWeapon(b, "MACE");
             int rocket = b.find(Material.FIREWORK_ROCKET);
-            if (mace < 0 || rocket < 0) {
+            if (mace < 0 || rocket < 0 || b.find(Material.ELYTRA) < 0 && !(b.armor[1] != null
+                    && b.armor[1].getType() == Material.ELYTRA)) {
                 return false;
             }
-            boolean wearing = !Bot.empty(b.armor[1]) && b.armor[1].getType() == Material.ELYTRA;
-            if (!wearing) {
-                int ely = b.find(Material.ELYTRA);
-                if (ely < 0 || !on(b, "elytra.swap-chest")) {
-                    return false;
-                }
-                ItemStack old = b.armor[1];
-                b.armor[1] = b.inv[ely];
-                b.inv[ely] = old;
-                st.restoreChest = true;
-                b.equipDirty = true;
+            if (!on(b, "elytra.swap-chest") && (b.armor[1] == null || b.armor[1].getType() != Material.ELYTRA)) {
+                return false;
             }
+            if (!wearChest(b, true)) {
+                return false;
+            }
+            st.restoreChest = true;
             if (on(b, "items.consume")) {
                 b.take(rocket, 1);
             }
@@ -2266,6 +2422,7 @@ public class BotCombat {
             select(b, mace);
             st.flight = 1;
             st.flightTicks = 0;
+            st.elyTimer = 0;
             st.peakY = ml.getY();
             st.setCd("elytra", intv(b, "elytra.cooldown"));
             return true;
@@ -2273,37 +2430,80 @@ public class BotCombat {
 
         st.flightTicks++;
         st.noSelect = 6;
-        if ((m.isOnGround() && st.flightTicks > 6) || st.flightTicks > 240) {
+        if ((m.isOnGround() && st.flightTicks > 6) || st.flightTicks > 300) {
             endFlight(b, m);
             return false;
-        }
-        if (!m.isOnGround() && !m.isGliding()) {
-            m.setGliding(true);
         }
         double dx = tl.getX() - ml.getX();
         double dz = tl.getZ() - ml.getZ();
         double h = Math.max(1e-4, Math.hypot(dx, dz));
         Vector dir;
         double speed;
-        if (st.flight == 1) {
-            if (ml.getY() - tl.getY() >= num(b, "elytra.height")) {
-                st.flight = 2;
-                st.peakY = Math.max(st.peakY, ml.getY());
-            }
-            dir = new Vector(dx / h * 0.35, 0.9, dz / h * 0.35);
-            speed = 1.1;
-            if (st.flightTicks % 25 == 10) {
-                int rocket = b.find(Material.FIREWORK_ROCKET);
-                if (rocket >= 0) {
-                    if (on(b, "items.consume")) {
-                        b.take(rocket, 1);
+        switch (st.flight) {
+            case 1 -> { // climb
+                if (!m.isOnGround() && !m.isGliding()) {
+                    m.setGliding(true);
+                }
+                if (ml.getY() - tl.getY() >= num(b, "elytra.height")) {
+                    st.flight = 2;
+                    st.elyTimer = Math.max(1, intv(b, "elytra.aim-ticks"));
+                    wearChest(b, false);
+                    m.setGliding(false);
+                    return true;
+                }
+                dir = new Vector(dx / h * 0.35, 0.9, dz / h * 0.35);
+                speed = 0.95;
+                if (st.flightTicks % 25 == 10) {
+                    int rocket = b.find(Material.FIREWORK_ROCKET);
+                    if (rocket >= 0) {
+                        if (on(b, "items.consume")) {
+                            b.take(rocket, 1);
+                        }
+                        m.getWorld().playSound(ml, Sound.ENTITY_FIREWORK_ROCKET_LAUNCH, 1f, 1f);
                     }
-                    m.getWorld().playSound(ml, Sound.ENTITY_FIREWORK_ROCKET_LAUNCH, 1f, 1f);
                 }
             }
-        } else {
-            dir = aimPoint(t).toVector().subtract(m.getEyeLocation().toVector());
-            speed = 1.5;
+            case 2 -> { // chestplate on: stop in the air and aim quickly
+                m.setGliding(false);
+                Vector v = m.getVelocity();
+                m.setVelocity(new Vector(v.getX() * 0.5, Math.max(v.getY() * 0.5, -0.2), v.getZ() * 0.5));
+                aimAt(b, m, aimPoint(t));
+                if (--st.elyTimer <= 0) {
+                    wearChest(b, true);
+                    st.flight = 3;
+                    st.peakY = ml.getY();
+                    m.setGliding(true);
+                }
+                return true;
+            }
+            case 3 -> { // elytra on again: glide at the target
+                if (!m.isOnGround() && !m.isGliding()) {
+                    m.setGliding(true);
+                }
+                dir = aimPoint(t).toVector().subtract(m.getEyeLocation().toVector());
+                speed = 1.1;
+                if (dist <= num(b, "elytra.dive-range") || ml.getY() <= tl.getY() + 3.0) {
+                    wearChest(b, false);
+                    m.setGliding(false);
+                    st.peakY = Math.max(st.peakY, ml.getY());
+                    m.setFallDistance((float) Math.max(0, st.peakY - ml.getY()) + 3f);
+                    st.flight = 4;
+                    int mace = findWeapon(b, "MACE");
+                    if (mace >= 0) {
+                        select(b, mace);
+                    }
+                    return true;
+                }
+            }
+            default -> { // 4: chestplate on, dive with the mace
+                m.setGliding(false);
+                dir = aimPoint(t).toVector().subtract(m.getEyeLocation().toVector());
+                speed = 1.0;
+                int mace = findWeapon(b, "MACE");
+                if (mace >= 0) {
+                    select(b, mace);
+                }
+            }
         }
         if (dir.lengthSquared() < 1e-6) {
             return true;
@@ -2549,6 +2749,7 @@ public class BotCombat {
                     m.setVelocity(new Vector(v.getX(), 0.75, v.getZ()));
                     m.launchProjectile(WindCharge.class, new Vector(0, -1, 0));
                     m.swingMainHand();
+                    st.airTravel = 100;
                     if (on(b, "items.consume")) {
                         b.take(wc, 1);
                     }
@@ -2639,6 +2840,9 @@ public class BotCombat {
         dest.setPitch(cur.getPitch());
         m.teleport(dest);
         m.setVelocity(new Vector(0, plan.equals("pcatch") ? 0.1 : -0.1, 0));
+        if (plan.equals("pcatch")) {
+            st.airTravel = 100;
+        }
         st.peakY = dest.getY() + bonusFall;
         m.getWorld().playSound(dest, Sound.ENTITY_PLAYER_TELEPORT, 1f, 1f);
         if (on(b, "pearl.damage") && m.getHealth() > 6.0) {

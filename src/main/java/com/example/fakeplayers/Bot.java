@@ -60,6 +60,12 @@ public class Bot {
         public ItemStack[] strippedArmor;
         public int stripTimer;
         public boolean smArming;
+        public int airTravel;
+        public int eatSwapFrom = -1;
+        public int eatSwapTo = -1;
+        public Location webAt;
+        public int sinceHit = 999;
+        public int elyTimer;
         public double vy;
         public int totemWait;
         public double dirX;
@@ -86,6 +92,9 @@ public class Bot {
     public boolean immovable = false;
     public boolean invulnerable = false;
     public boolean dropItems = true;
+    public String bannerBase = null;
+    public List<String> bannerLayers = new ArrayList<>();
+    public String[] trims = new String[4];
     public boolean leaveOnDeath = false;
     public String lookAt = null;
     public List<String> patrol = new ArrayList<>();

@@ -92,6 +92,7 @@ public class InvGui implements InventoryHolder {
         }
         ItemStack off = inventory.getItem(OFFHAND);
         bot.offhand = Bot.empty(off) ? null : off.clone();
+        Cosmetics.apply(bot);
         bot.equipDirty = true;
     }
 

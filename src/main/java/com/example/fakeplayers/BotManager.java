@@ -47,6 +47,7 @@ public class BotManager {
     private final File file;
     private final List<Placed> placed = new ArrayList<>();
     private final BotCombat combat;
+    private final BotWeapons weapons;
     private final BotNav nav;
     private final BotTab tab;
     private long tickCount;
@@ -56,6 +57,7 @@ public class BotManager {
         this.botKey = new NamespacedKey(plugin, "bot_name");
         this.file = new File(plugin.getDataFolder(), "bots.yml");
         this.combat = new BotCombat(plugin, this);
+        this.weapons = new BotWeapons(plugin, this);
         this.nav = new BotNav(plugin, this);
         this.tab = new BotTab(plugin);
     }
@@ -86,6 +88,10 @@ public class BotManager {
 
     public BotNav nav() {
         return nav;
+    }
+
+    public BotWeapons weapons() {
+        return weapons;
     }
 
     public BotCombat combat() {
@@ -268,6 +274,9 @@ public class BotManager {
             y.set(p + "immovable", b.immovable);
             y.set(p + "invulnerable", b.invulnerable);
             y.set(p + "drop-items", b.dropItems);
+            y.set(p + "banner-base", b.bannerBase);
+            y.set(p + "banner-layers", b.bannerLayers);
+            y.set(p + "trims", java.util.Arrays.asList(b.trims));
             y.set(p + "leave-on-death", b.leaveOnDeath);
             y.set(p + "patrol", b.patrol);
             y.set(p + "greet", b.greet);
@@ -345,6 +354,12 @@ public class BotManager {
             b.immovable = s.getBoolean("immovable");
             b.invulnerable = s.getBoolean("invulnerable");
             b.dropItems = s.getBoolean("drop-items", true);
+            b.bannerBase = s.getString("banner-base");
+            b.bannerLayers = new ArrayList<>(s.getStringList("banner-layers"));
+            List<String> tl = s.getStringList("trims");
+            for (int ti = 0; ti < 4 && ti < tl.size(); ti++) {
+                b.trims[ti] = tl.get(ti) == null || tl.get(ti).isEmpty() ? null : tl.get(ti);
+            }
             b.leaveOnDeath = s.getBoolean("leave-on-death", false);
             b.patrol = new ArrayList<>(s.getStringList("patrol"));
             b.greet = s.getString("greet");
@@ -659,11 +674,29 @@ public class BotManager {
         if (!(block.isEmpty() || block.isReplaceable() || block.getType() == Material.COBWEB)) {
             return false;
         }
+        if (!supported(block)) {
+            return false; // a player can only place against an existing block
+        }
         block.setType(mat, true);
         if (cleanupTicks > 0) {
             placed.add(new Placed(block.getLocation(), mat, tickCount + cleanupTicks, refundFrom, refundTo, b));
         }
         return true;
+    }
+
+    /** True when at least one neighbouring block is solid ground, a web or placed fluid to click against. */
+    public static boolean supported(Block block) {
+        for (org.bukkit.block.BlockFace f : new org.bukkit.block.BlockFace[]{org.bukkit.block.BlockFace.DOWN,
+                org.bukkit.block.BlockFace.NORTH, org.bukkit.block.BlockFace.SOUTH, org.bukkit.block.BlockFace.EAST,
+                org.bukkit.block.BlockFace.WEST, org.bukkit.block.BlockFace.UP}) {
+            Block n = block.getRelative(f);
+            Material t = n.getType();
+            if (!n.isEmpty() && !n.isLiquid() && t != Material.FIRE && t != Material.SOUL_FIRE && !n.isReplaceable()
+                    || t == Material.COBWEB) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void tickPlaced() {
@@ -756,7 +789,17 @@ public class BotManager {
         if (m.isOnGround()) {
             m.setVelocity(new Vector(nx * speed, y, nz * speed));
         } else {
-            m.setVelocity(new Vector(v.getX() * 0.9 + nx * speed * 0.1, y, v.getZ() * 0.9 + nz * speed * 0.1));
+            // player-like air control: momentum is kept (0.91 drag), steering is a small push, never faster than ground speed
+            double acc = 0.026 * PvpOptions.dbl(plugin, b, "move.air-speed") * Math.max(0.5, speed / 0.2);
+            double ax = v.getX() * 0.91 + nx * acc;
+            double az = v.getZ() * 0.91 + nz * acc;
+            double cap = Math.max(0.1, speed * 1.05);
+            double hs = Math.hypot(ax, az);
+            if (hs > cap && hs > Math.hypot(v.getX(), v.getZ())) {
+                ax = ax / hs * Math.max(cap, Math.hypot(v.getX(), v.getZ()));
+                az = az / hs * Math.max(cap, Math.hypot(v.getX(), v.getZ()));
+            }
+            m.setVelocity(new Vector(ax, y, az));
         }
     }
 
