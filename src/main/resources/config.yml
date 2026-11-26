@@ -101,6 +101,11 @@ pvp:
       grapple.enabled: true
       mace.enabled: true
       shield.enabled: false
+    potter:
+      buff.prefight: true
+      turtle.enabled: true
+      invis.enabled: true
+      pickup.enabled: true
     sword:
       shield.enabled: true
       heal.enabled: true
@@ -175,6 +180,20 @@ pvp:
   # Loadouts: /bot kit <bot> [name] or the kit button. Format: MATERIAL [amount] [enchantment=level] [potion=type]
   # Armor goes into armor slots, a SHIELD goes to the off hand, everything else fills the hotbar then the inventory.
   kits:
+    potter:
+      - NETHERITE_HELMET protection=4 unbreaking=3
+      - NETHERITE_CHESTPLATE protection=4 unbreaking=3
+      - NETHERITE_LEGGINGS protection=4 unbreaking=3
+      - NETHERITE_BOOTS protection=4 unbreaking=3
+      - NETHERITE_SWORD sharpness=5 unbreaking=3
+      - POTION potion=invisibility
+      - POTION potion=strong_swiftness
+      - POTION potion=strong_strength
+      - POTION potion=long_fire_resistance
+      - POTION potion=strong_turtle_master
+      - ENCHANTED_GOLDEN_APPLE 4
+      - GOLDEN_APPLE 16
+      - TOTEM_OF_UNDYING 3
     cart-insta:
       - NETHERITE_HELMET protection=4 unbreaking=3
       - NETHERITE_CHESTPLATE protection=4 unbreaking=3

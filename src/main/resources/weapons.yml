@@ -1,0 +1,87 @@
+# Custom weapons bridge. A bot that holds an item matching an entry below will:
+#   - prefer it as its weapon (prefer: true)
+#   - run on-hit commands every time it lands a melee hit
+#   - run on-use commands as its "ability" (right-click) when the situation fits
+#
+# match: text looked for in the item's display name (case-insensitive), OR the exact item type (e.g. mace),
+#        OR part of any persistent-data key on the item (e.g. customweapons:id). Use whichever your weapons plugin sets.
+# Commands run as the console. Placeholders: %bot% %victim% %victimuuid% %botuuid% %weapon% %item% %x% %y% %z%
+# Put the commands your weapons plugin exposes here; leave a list empty ([]) to do nothing.
+# Drag the weapon into the bot's inventory (/bot inv <bot>) or add it to a kit with a name= that matches.
+#
+# use-when: combat | low-health | airborne | target-airborne      use-range / use-min-range in blocks
+# use-cooldown-ticks, use-chance (0-1), use-health (for low-health)
+# native-abilities: bots can't be real players, so the CustomWeapons abilities can't be triggered through that plugin.
+# With this on, bots use built-in versions of Durandal, Eldritch Mace, Halberd, Prismatic Blade, Warden Whip and
+# Excalibur, driven by the numbers in the CustomWeapons config.yml (cooldowns, damage, radius, multipliers).
+# Items are recognised by CustomWeapons' own item tag, so give bots the real items from /weapon give.
+native-abilities: true
+
+weapons:
+  durandal:
+    match: durandal
+    prefer: true
+    on-hit: []
+    on-use: []
+    use-when: combat
+    use-range: 6.0
+    use-cooldown-ticks: 100
+    use-chance: 1.0
+  eldritch-mace:
+    match: eldritch
+    prefer: true
+    on-hit: []
+    on-use: []
+    use-when: airborne
+    use-range: 8.0
+    use-cooldown-ticks: 140
+  halberd-of-despair:
+    match: halberd
+    prefer: true
+    on-hit: []
+    on-use: []
+    use-when: combat
+    use-range: 5.0
+    use-cooldown-ticks: 120
+  warden-whip:
+    match: warden whip
+    prefer: true
+    on-hit: []
+    on-use: []
+    use-when: combat
+    use-range: 10.0
+    use-min-range: 3.0
+    use-cooldown-ticks: 100
+  prismatic-blade:
+    match: prismatic
+    prefer: true
+    on-hit: []
+    on-use: []
+    use-when: combat
+    use-range: 6.0
+    use-cooldown-ticks: 120
+  excalibur:
+    match: excalibur
+    prefer: true
+    on-hit: []
+    on-use: []
+    use-when: combat
+    use-range: 6.0
+    use-cooldown-ticks: 120
+  medusas-revolver:
+    match: medusa
+    prefer: false
+    on-hit: []
+    on-use: []
+    use-when: combat
+    use-range: 20.0
+    use-min-range: 5.0
+    use-cooldown-ticks: 60
+  miners-handy-tool:
+    match: handy tool
+    prefer: false
+    on-hit: []
+    on-use: []
+    use-when: combat
+    use-range: 4.0
+    use-cooldown-ticks: 200
